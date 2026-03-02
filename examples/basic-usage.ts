@@ -1,7 +1,7 @@
 /**
  * Basic usage example.
  *
- * Demonstrates the fundamental greet function usage patterns.
+ * Demonstrates fundamental MQTT wire codec usage patterns.
  *
  * @example
  * ```bash
@@ -11,39 +11,76 @@
 
 /* eslint-disable no-console */
 
-import { greet, type GreetOptions } from "../src/index"
+import {
+  BinaryReader,
+  BinaryWriter,
+  decodeVariableByteInteger,
+  encodeVariableByteIntegerToArray,
+  PACKET_TYPE_NAME,
+  PacketType
+} from "../src/index"
 
 function main(): void {
-  console.log("=== Basic Usage Examples ===\n")
+  console.log("=== MQTT Wire Basic Usage ===\n")
 
-  // Example 1: Simple informal greeting
-  console.log("--- Example 1: Informal Greeting ---")
-  const informal = greet({ name: "World" })
-  console.log(`  Result: ${informal}`)
-  console.log()
-
-  // Example 2: Formal greeting
-  console.log("--- Example 2: Formal Greeting ---")
-  const formal = greet({ name: "Dr. Smith", formal: true })
-  console.log(`  Result: ${formal}`)
-  console.log()
-
-  // Example 3: Using typed options
-  console.log("--- Example 3: Typed Options ---")
-  const options: GreetOptions = {
-    name: "TypeScript Developer",
-    formal: false
+  // Example 1: Variable byte integer encoding
+  console.log("--- Example 1: Variable Byte Integer ---")
+  const values = [0, 127, 128, 16383, 16384, 268_435_455]
+  for (const value of values) {
+    const encoded = encodeVariableByteIntegerToArray(value)
+    const decoded = decodeVariableByteInteger(encoded, 0)
+    console.log(
+      `  ${String(value)} → [${Array.from(encoded)
+        .map((b) => `0x${b.toString(16)}`)
+        .join(", ")}]`
+    )
+    if (decoded.ok) {
+      console.log(
+        `    Decoded: ${String(decoded.value.value)} (${String(decoded.value.bytesRead)} bytes)`
+      )
+    }
   }
-  const typed = greet(options)
-  console.log(`  Options: ${JSON.stringify(options)}`)
-  console.log(`  Result: ${typed}`)
   console.log()
 
-  // Example 4: Dynamic name
-  console.log("--- Example 4: Dynamic Name ---")
-  const names = ["Alice", "Bob", "Charlie"]
-  for (const name of names) {
-    console.log(`  ${name}: ${greet({ name })}`)
+  // Example 2: Packet type constants
+  console.log("--- Example 2: Packet Types ---")
+  const packetTypes = [
+    PacketType.CONNECT,
+    PacketType.PUBLISH,
+    PacketType.SUBSCRIBE,
+    PacketType.PINGREQ
+  ]
+  for (const type of packetTypes) {
+    console.log(`  Type ${String(type)}: ${PACKET_TYPE_NAME[type]}`)
+  }
+  console.log()
+
+  // Example 3: Binary writer/reader
+  console.log("--- Example 3: Binary Writer/Reader ---")
+  const writer = new BinaryWriter()
+  writer
+    .writeUint8(0x10) // CONNECT packet type
+    .writeVariableByteInteger(12) // Remaining length
+    .writeMqttString("MQTT") // Protocol name
+    .writeUint8(5) // Protocol version (5.0)
+    .writeUint8(0x02) // Connect flags
+
+  const packet = writer.toUint8Array()
+  console.log(
+    `  Packet bytes: [${Array.from(packet)
+      .map((b) => `0x${b.toString(16).padStart(2, "0")}`)
+      .join(", ")}]`
+  )
+
+  const reader = new BinaryReader(packet)
+  const header = reader.readUint8()
+  const length = reader.readVariableByteInteger()
+  const protocol = reader.readMqttString()
+
+  if (header.ok && length.ok && protocol.ok) {
+    console.log(`  Header: 0x${header.value.toString(16)}`)
+    console.log(`  Remaining length: ${String(length.value)}`)
+    console.log(`  Protocol: ${protocol.value}`)
   }
 
   console.log("\nExamples complete.")

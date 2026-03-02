@@ -1,7 +1,7 @@
 /**
- * Batch processing example.
+ * Stream framing example.
  *
- * Demonstrates processing multiple items efficiently.
+ * Demonstrates processing chunked MQTT data through the stream framer.
  *
  * @example
  * ```bash
@@ -11,91 +11,123 @@
 
 /* eslint-disable no-console */
 
-import { greet } from "../src/index"
-
-type Person = {
-  name: string
-  title?: string
-  formal?: boolean
-}
+import { PACKET_TYPE_NAME, type PacketType, parsePacketFrame, StreamFramer } from "../src/index"
 
 /**
- * Generate greeting for a person, using title if available.
+ * Simulates receiving data in chunks from a network connection.
  */
-function greetPerson(person: Person): string {
-  const displayName = person.title !== undefined ? `${person.title} ${person.name}` : person.name
-  return greet({ name: displayName, formal: person.formal })
-}
+function simulateChunkedReceive(fullData: Uint8Array, chunkSizes: number[]): Uint8Array[] {
+  const chunks: Uint8Array[] = []
+  let offset = 0
 
-/**
- * Process multiple people and return all greetings.
- */
-function greetAll(people: Person[]): string[] {
-  return people.map(greetPerson)
-}
-
-/**
- * Process people with progress callback.
- */
-function greetAllWithProgress(
-  people: Person[],
-  onProgress: (current: number, total: number, result: string) => void
-): string[] {
-  const results: string[] = []
-  const total = people.length
-
-  for (let i = 0; i < people.length; i++) {
-    const result = greetPerson(people[i])
-    results.push(result)
-    onProgress(i + 1, total, result)
+  for (const size of chunkSizes) {
+    if (offset >= fullData.length) {
+      break
+    }
+    const end = Math.min(offset + size, fullData.length)
+    chunks.push(fullData.slice(offset, end))
+    offset = end
   }
 
-  return results
+  return chunks
 }
 
 function main(): void {
-  console.log("=== Batch Processing Examples ===\n")
+  console.log("=== Stream Framing Examples ===\n")
 
-  // Sample data
-  const people: Person[] = [
-    { name: "Alice", formal: false },
-    { name: "Bob", title: "Mr.", formal: true },
-    { name: "Carol", title: "Dr.", formal: true },
-    { name: "Dave" },
-    { name: "Eve", title: "Prof.", formal: true }
-  ]
+  // Build some sample MQTT packets
+  // PINGREQ (2 bytes): 0xC0 0x00
+  // PINGRESP (2 bytes): 0xD0 0x00
+  // Simulated PUBLISH (7 bytes): 0x30 0x05 + 5 payload bytes
+  const packets = new Uint8Array([
+    0xc0,
+    0x00, // PINGREQ
+    0xd0,
+    0x00, // PINGRESP
+    0x30,
+    0x05,
+    0x01,
+    0x02,
+    0x03,
+    0x04,
+    0x05 // PUBLISH with 5-byte payload
+  ])
 
-  // Example 1: Simple batch processing
-  console.log("--- Example 1: Simple Batch ---")
-  const greetings = greetAll(people)
-  for (const greeting of greetings) {
-    console.log(`  ${greeting}`)
+  // Example 1: Process complete data
+  console.log("--- Example 1: Complete Data ---")
+  const framer1 = new StreamFramer()
+  framer1.push(packets)
+
+  let packetCount = 0
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+  while (true) {
+    const result = framer1.read()
+    if (result.status === "incomplete") {
+      break
+    }
+    if (result.status === "error") {
+      console.log(`  Error: ${result.error.message}`)
+      break
+    }
+
+    packetCount++
+    const frame = parsePacketFrame(result.packetData)
+    if (frame.ok) {
+      const typeName = PACKET_TYPE_NAME[frame.value.packetType as PacketType]
+      console.log(
+        `  Packet ${String(packetCount)}: ${typeName} (${String(result.bytesConsumed)} bytes)`
+      )
+    }
   }
   console.log()
 
-  // Example 2: With progress tracking
-  console.log("--- Example 2: With Progress ---")
-  greetAllWithProgress(people, (current, total, result) => {
-    const percent = ((current / total) * 100).toFixed(0)
-    console.log(`  [${percent.padStart(3)}%] ${result}`)
-  })
-  console.log()
+  // Example 2: Process chunked data (simulating network)
+  console.log("--- Example 2: Chunked Data ---")
+  const chunkSizes = [1, 2, 3, 1, 4] // Arbitrary chunk boundaries
+  const chunks = simulateChunkedReceive(packets, chunkSizes)
+  console.log(`  Receiving ${String(chunks.length)} chunks: [${chunkSizes.join(", ")}] bytes`)
 
-  // Example 3: Filter and transform
-  console.log("--- Example 3: Filter Formal Only ---")
-  const formalPeople = people.filter((p) => p.formal === true)
-  const formalGreetings = greetAll(formalPeople)
-  console.log(`  Found ${String(formalGreetings.length)} formal greetings:`)
-  for (const greeting of formalGreetings) {
-    console.log(`    ${greeting}`)
+  const framer2 = new StreamFramer()
+  let totalPackets = 0
+
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = chunks[i]
+    console.log(
+      `  Chunk ${String(i + 1)}: ${String(chunk.length)} bytes, buffered: ${String(framer2.bufferedLength)}`
+    )
+    framer2.push(chunk)
+
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    while (true) {
+      const result = framer2.read()
+      if (result.status === "incomplete") {
+        break
+      }
+      if (result.status === "error") {
+        console.log(`    Error: ${result.error.message}`)
+        break
+      }
+
+      totalPackets++
+      const frame = parsePacketFrame(result.packetData)
+      if (frame.ok) {
+        const typeName = PACKET_TYPE_NAME[frame.value.packetType as PacketType]
+        console.log(`    → Extracted: ${typeName}`)
+      }
+    }
   }
+  console.log(`  Total packets extracted: ${String(totalPackets)}`)
   console.log()
 
-  // Example 4: Reduce to single message
-  console.log("--- Example 4: Combined Message ---")
-  const allNames = people.map((p) => p.name).join(", ")
-  const combinedGreeting = greet({ name: `everyone (${allNames})` })
-  console.log(`  ${combinedGreeting}`)
+  // Example 3: Packet size limit
+  console.log("--- Example 3: Packet Size Limit ---")
+  const smallFramer = new StreamFramer(5) // Max 5 bytes
+  smallFramer.push(new Uint8Array([0x30, 0x10])) // Claims 16-byte payload
+
+  const limitResult = smallFramer.read()
+  if (limitResult.status === "error") {
+    console.log(`  Rejected: ${limitResult.error.message}`)
+  }
 
   console.log("\nExamples complete.")
 }

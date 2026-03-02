@@ -38,10 +38,16 @@ storage, session persistence, and will message publishing.
 
 ### Modules
 
-| Module     | Purpose          |
-| ---------- | ---------------- |
-| `index.ts` | Main entry point |
-| `greet.ts` | Greeting utility |
+| Module             | Purpose                              |
+| ------------------ | ------------------------------------ |
+| `index.ts`         | Main entry point                     |
+| `types.ts`         | Core primitives: DecodeResult, QoS   |
+| `constants.ts`     | Packet types, property IDs, limits   |
+| `codec/varint.ts`  | Variable byte integer codec (§2.2.3) |
+| `codec/utf8.ts`    | UTF-8 validation, MQTT strings       |
+| `codec/reader.ts`  | Binary reader with bounds checking   |
+| `codec/writer.ts`  | Binary writer, size calculator       |
+| `codec/framing.ts` | Stream framing, packet reassembly    |
 
 ### Directory Structure
 
@@ -54,15 +60,22 @@ storage, session persistence, and will message publishing.
 
 ### Features
 
-| Feature           | Status      | Notes                       |
-| ----------------- | ----------- | --------------------------- |
-| Packet encoding   | Not started | —                           |
-| Packet decoding   | Not started | —                           |
-| QoS handling      | Not started | —                           |
-| Keepalive         | Not started | —                           |
-| Lifecycle hooks   | Not started | —                           |
-| Topic utilities   | Not started | —                           |
-| Testing utilities | Not started | Subpath `mqtt-wire/testing` |
+| Feature            | Status      | Notes                       |
+| ------------------ | ----------- | --------------------------- |
+| Core primitives    | Complete    | DecodeResult, QoS, types    |
+| Protocol constants | Complete    | Packet types, properties    |
+| Variable byte int  | Complete    | §2.2.3 test vectors pass    |
+| UTF-8 validation   | Complete    | §1.5.4 malformed rejected   |
+| Binary reader      | Complete    | Bounds-checked cursor       |
+| Binary writer      | Complete    | Auto-growing, size calc     |
+| Stream framing     | Complete    | Chunk-split tests pass      |
+| Packet encoding    | Not started | —                           |
+| Packet decoding    | Not started | —                           |
+| QoS handling       | Not started | —                           |
+| Keepalive          | Not started | —                           |
+| Lifecycle hooks    | Not started | —                           |
+| Topic utilities    | Not started | —                           |
+| Testing utilities  | Not started | Subpath `mqtt-wire/testing` |
 
 ---
 
@@ -124,15 +137,15 @@ storage, session persistence, and will message publishing.
 
 ## Work Queue
 
-### Protocol Foundation
+### Protocol Foundation ✓
 
-- [ ] Core primitives: DecodeResult, DecodeError, ProtocolVersion, QoS, ReasonCode
-- [ ] Constants: packet types (§2.1.2), property IDs (§2.2.2.2), reason codes (§2.4)
-- [ ] Variable-length integer codec (§2.2.3), UTF-8 validation (§1.5.4)
-- [ ] Binary reader/writer with bounds checking
-- [ ] Stream framing: chunk accumulation, partial packet handling
+- [x] Core primitives: DecodeResult, DecodeError, ProtocolVersion, QoS, ReasonCode
+- [x] Constants: packet types (§2.1.2), property IDs (§2.2.2.2), reason codes (§2.4)
+- [x] Variable-length integer codec (§2.2.3), UTF-8 validation (§1.5.4)
+- [x] Binary reader/writer with bounds checking
+- [x] Stream framing: chunk accumulation, partial packet handling
 
-**Exit:** §2.2.3 test vectors pass; UTF-8 rejects malformed; chunk-split property tests pass.
+**Exit:** ✓ §2.2.3 test vectors pass; UTF-8 rejects malformed; chunk-split tests pass.
 
 ### Packet Codec
 
@@ -167,5 +180,6 @@ work.
 
 > Append-only. Never edit or delete existing entries.
 
-| Date | Learning |
-| ---- | -------- |
+| Date       | Learning                                                                        |
+| ---------- | ------------------------------------------------------------------------------- |
+| 2025-07-16 | StreamFramer.push() must preserve unconsumed buffer data when new chunks arrive |
