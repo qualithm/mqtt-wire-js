@@ -63,6 +63,16 @@ describe("variableByteInteger", () => {
       expect(() => encodeVariableByteIntegerToArray(268_435_456)).toThrow(RangeError)
     })
 
+    it("throws for negative value with buffer", () => {
+      const buffer = new Uint8Array(4)
+      expect(() => encodeVariableByteInteger(-1, buffer, 0)).toThrow(RangeError)
+    })
+
+    it("throws for value exceeding maximum with buffer", () => {
+      const buffer = new Uint8Array(4)
+      expect(() => encodeVariableByteInteger(268_435_456, buffer, 0)).toThrow(RangeError)
+    })
+
     it("throws when buffer is too small", () => {
       const buffer = new Uint8Array(1)
       expect(() => encodeVariableByteInteger(128, buffer, 0)).toThrow(RangeError)

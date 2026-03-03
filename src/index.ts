@@ -105,3 +105,21 @@ export type {
   WillProperties
 } from "./packets/index.js"
 export { decodePacket, encodePacket } from "./packets/index.js"
+
+// Topic utilities
+export type { SharedSubscription } from "./topic.js"
+export {
+  isSharedSubscription,
+  isValidTopicFilter,
+  isValidTopicName,
+  joinTopicLevels,
+  MAX_TOPIC_LENGTH,
+  parseSharedSubscription,
+  parseTopicLevels,
+  SHARED_SUBSCRIPTION_PREFIX,
+  topicMatches,
+  validateTopicFilter,
+  validateTopicName,
+  WILDCARD_MULTI,
+  WILDCARD_SINGLE
+} from "./topic.js"

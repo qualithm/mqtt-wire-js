@@ -48,6 +48,7 @@ storage, session persistence, and will message publishing.
 | `codec/reader.ts`  | Binary reader with bounds checking   |
 | `codec/writer.ts`  | Binary writer, size calculator       |
 | `codec/framing.ts` | Stream framing, packet reassembly    |
+| `topic.ts`         | Topic validation, matching, shared   |
 
 ### Directory Structure
 
@@ -74,7 +75,7 @@ storage, session persistence, and will message publishing.
 | QoS handling       | Not started | —                            |
 | Keepalive          | Not started | —                            |
 | Lifecycle hooks    | Not started | —                            |
-| Topic utilities    | Not started | —                            |
+| Topic utilities    | Complete    | Validation, matching, shared |
 | Testing utilities  | Not started | Subpath `mqtt-wire/testing`  |
 
 ---
@@ -147,13 +148,13 @@ storage, session persistence, and will message publishing.
 
 **Exit:** ✓ §2.2.3 test vectors pass; UTF-8 rejects malformed; chunk-split tests pass.
 
-### Packet Codec
+### Packet Codec ✓
 
 - [x] Packet types as discriminated union; encode/decode all 15 packet types
 - [x] All 5.0 properties; reason codes with 3.1.1 compat
-- [ ] Topic utilities: parse, match (+/#), validate, shared subscription parsing
+- [x] Topic utilities: parse, match (+/#), validate, shared subscription parsing
 
-**Exit:** Encode/decode symmetry; reject malformed; fast-check fuzzing passes; topic spec examples
+**Exit:** ✓ Encode/decode symmetry; reject malformed; fast-check fuzzing passes; topic spec examples
 work.
 
 ### State Machine

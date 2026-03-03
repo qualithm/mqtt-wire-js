@@ -136,6 +136,17 @@ describe("utf8", () => {
         expect(decoded.value).toBe("")
       }
     })
+
+    it("returns error for invalid UTF-8 bytes", () => {
+      // Invalid UTF-8: continuation byte without start byte
+      const invalidBytes = new Uint8Array([0x80, 0x81, 0x82])
+      const result = decodeUtf8(invalidBytes)
+
+      expect(result.ok).toBe(false)
+      if (!result.ok) {
+        expect(result.error.code).toBe("MALFORMED_UTF8")
+      }
+    })
   })
 
   describe("utf8ByteLength", () => {
@@ -239,6 +250,17 @@ describe("utf8", () => {
       expect(result.ok).toBe(false)
       if (!result.ok) {
         expect(result.error.code).toBe("INCOMPLETE")
+      }
+    })
+
+    it("returns error for string with MQTT-prohibited characters", () => {
+      // Create a buffer with length prefix and string containing null byte
+      const buffer = new Uint8Array([0x00, 0x03, 0x41, 0x00, 0x42]) // "A\0B"
+      const result = decodeMqttString(buffer, 0)
+
+      expect(result.ok).toBe(false)
+      if (!result.ok) {
+        expect(result.error.code).toBe("MALFORMED_UTF8")
       }
     })
 
