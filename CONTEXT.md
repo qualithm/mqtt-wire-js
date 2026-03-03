@@ -84,6 +84,8 @@ storage, session persistence, and will message publishing.
 | Packet ID alloc    | Complete    | Sequential with wraparound         |
 | Topic utilities    | Complete    | Validation, matching, shared       |
 | MqttWire class     | Complete    | Connection state machine           |
+| Session state      | Complete    | Export/restore, onSessionLost hook |
+| Will validation    | Complete    | Topic and QoS validation           |
 | Testing utilities  | Not started | Subpath `mqtt-wire/testing`        |
 
 ---
@@ -170,11 +172,10 @@ work.
 - [x] Connection states, QoS 1/2 flows, keepalive (1.5x), packet ID recycling
 - [x] Topic alias resolution, receive maximum flow control
 - [x] MqttWire class: receive(), publish(), subscribe(), disconnect(), hooks, lifecycle
-- [ ] Session state persistence (for reconnect with cleanStart=false)
-- [ ] Will message handling
+- [x] Session state persistence (for reconnect with cleanStart=false)
+- [x] Will message handling
 
-**Exit:** ✓ Unit tests pass; MqttWire provides full protocol handling. Conformance testing against
-Mosquitto/EMQX pending in Infrastructure phase.
+**Exit:** ✓ Unit tests pass; session export/restore working; will validation enforced.
 
 ### Infrastructure
 

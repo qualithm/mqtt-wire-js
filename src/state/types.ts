@@ -217,6 +217,15 @@ export type OnSendHook = (data: Uint8Array) => void | Promise<void>
 export type OnErrorHook = (error: Error) => void
 
 /**
+ * Hook called when session state is lost.
+ *
+ * Called when the client reconnects expecting session resumption (cleanStart=false)
+ * but the server indicates no session exists (sessionPresent=false). This gives
+ * the application a chance to re-subscribe and handle lost state.
+ */
+export type OnSessionLostHook = () => void | Promise<void>
+
+/**
  * All lifecycle hooks.
  */
 export type LifecycleHooks = {
@@ -234,6 +243,8 @@ export type LifecycleHooks = {
   onSend: OnSendHook
   /** Called on protocol errors */
   onError?: OnErrorHook
+  /** Called when session state is lost on reconnect */
+  onSessionLost?: OnSessionLostHook
 }
 
 // -----------------------------------------------------------------------------

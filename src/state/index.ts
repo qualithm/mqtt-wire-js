@@ -16,6 +16,7 @@ export type {
   OnErrorHook,
   OnPublishHook,
   OnSendHook,
+  OnSessionLostHook,
   OnSubscribeHook,
   OnUnsubscribeHook,
   OutboundFlow,

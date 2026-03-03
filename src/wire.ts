@@ -25,7 +25,8 @@ import type {
   SubscribePacket,
   Subscription,
   UnsubackPacket,
-  UnsubscribePacket
+  UnsubscribePacket,
+  WillMessage
 } from "./packets/types.js"
 import { PacketIdAllocator } from "./state/packet-id.js"
 import { QoSFlowTracker } from "./state/qos-flow.js"
@@ -37,8 +38,10 @@ import {
   type MqttWireOptions,
   type PendingOperation,
   type PendingSubscribe,
-  type PendingUnsubscribe
+  type PendingUnsubscribe,
+  type SessionState
 } from "./state/types.js"
+import { validateTopicName } from "./topic.js"
 import type { ProtocolVersion, QoS, ReasonCode } from "./types.js"
 
 // -----------------------------------------------------------------------------
@@ -68,6 +71,35 @@ export class StateError extends Error {
     super(message)
     this.name = "StateError"
     this.state = state
+  }
+}
+
+/**
+ * Error thrown for invalid will message configuration.
+ */
+export class WillError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "WillError"
+  }
+}
+
+/**
+ * Validates a will message.
+ *
+ * @param will - Will message to validate
+ * @throws WillError if validation fails
+ */
+function validateWill(will: WillMessage): void {
+  // Validate topic
+  const topicResult = validateTopicName(will.topic)
+  if (!topicResult.ok) {
+    throw new WillError(`will topic invalid: ${topicResult.error.message}`)
+  }
+
+  // Validate QoS (must be 0, 1, or 2)
+  if (will.qos < 0 || will.qos > 2) {
+    throw new WillError(`will QoS must be 0, 1, or 2, got ${String(will.qos)}`)
   }
 }
 
@@ -146,6 +178,10 @@ export class MqttWire {
   private serverTopicAliasMaximum = 0
   private serverKeepAlive: number | null = null
   private assignedClientId: string | null = null
+
+  // Session tracking
+  private expectingSessionResumption = false
+  private storedClientId: string | null = null
 
   // Active subscriptions
   private readonly subscriptions = new Map<string, number>()
@@ -237,7 +273,17 @@ export class MqttWire {
       throw new StateError(`cannot connect in state ${this.state}`, this.state)
     }
 
+    // Validate will message if provided
+    if (connectOptions.will !== undefined) {
+      validateWill(connectOptions.will)
+    }
+
     this.state = "connecting"
+
+    // Track whether we expect session resumption
+    const cleanStart = connectOptions.cleanStart ?? true
+    this.expectingSessionResumption = !cleanStart
+    this.storedClientId = connectOptions.clientId
 
     const packet: ConnectPacket = {
       type: PacketType.CONNECT,
@@ -591,6 +637,16 @@ export class MqttWire {
     // Connection successful
     this.state = "connected"
 
+    // Handle session state
+    const sessionLost = this.expectingSessionResumption && !packet.sessionPresent
+    if (sessionLost) {
+      // Server doesn't have our session - clear pending state
+      this.qosFlows.clear()
+      this.pendingOps.clear()
+      this.subscriptions.clear()
+      this.packetIds.reset()
+    }
+
     // Process CONNACK properties
     if (packet.properties) {
       if (packet.properties.receiveMaximum !== undefined) {
@@ -622,9 +678,19 @@ export class MqttWire {
     // Start keepalive timer
     this.startKeepalive()
 
+    // Notify session lost before onConnect
+    if (sessionLost && this.hooks.onSessionLost) {
+      await this.hooks.onSessionLost()
+    }
+
     // Call hook
     if (this.hooks.onConnect) {
       await this.hooks.onConnect(packet)
+    }
+
+    // If session resumed, resend pending QoS messages (with DUP flag)
+    if (packet.sessionPresent) {
+      await this.resendPendingFlows()
     }
   }
 
@@ -906,5 +972,154 @@ export class MqttWire {
     this.serverTopicAliasMaximum = 0
     this.serverKeepAlive = null
     this.assignedClientId = null
+    this.expectingSessionResumption = false
+    this.storedClientId = null
+  }
+
+  // ---------------------------------------------------------------------------
+  // Session State Persistence
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Export current session state for persistence.
+   *
+   * Call this after disconnect to save state for session resumption.
+   * The returned state can be stored and passed to `restoreSessionState()`
+   * before the next `connect()` call with `cleanStart: false`.
+   *
+   * @returns Session state snapshot or null if no session exists
+   */
+  exportSessionState(): SessionState | null {
+    const clientId = this.storedClientId ?? this.assignedClientId
+    if (clientId === null || clientId === "") {
+      return null
+    }
+
+    // Calculate session expiry
+    const expiryInterval = this.options.sessionExpiryInterval
+    const expiresAt = expiryInterval === 0 ? 0 : Date.now() + expiryInterval * 1000
+
+    return {
+      clientId,
+      outboundFlows: new Map(this.qosFlows.getAllOutbound()),
+      inboundFlows: new Map(this.qosFlows.getAllInbound()),
+      pendingOperations: new Map(this.pendingOps),
+      subscriptions: new Map(this.subscriptions),
+      expiresAt
+    }
+  }
+
+  /**
+   * Restore session state before connecting.
+   *
+   * Call this before `connect()` with `cleanStart: false` to restore
+   * a previously exported session state. If the server accepts the session,
+   * pending QoS flows will be automatically retransmitted.
+   *
+   * @param state - Previously exported session state
+   */
+  restoreSessionState(state: SessionState): void {
+    if (this.state !== "disconnected") {
+      throw new StateError(`cannot restore session in state ${this.state}`, this.state)
+    }
+
+    // Check if session has expired
+    if (state.expiresAt !== 0 && Date.now() > state.expiresAt) {
+      return // Session expired, nothing to restore
+    }
+
+    // Restore flows
+    this.qosFlows.restore(state.outboundFlows.values(), state.inboundFlows.values())
+
+    // Restore pending operations
+    this.pendingOps.clear()
+    for (const [id, op] of state.pendingOperations) {
+      this.pendingOps.set(id, op)
+    }
+
+    // Restore subscriptions
+    this.subscriptions.clear()
+    for (const [filter, qos] of state.subscriptions) {
+      this.subscriptions.set(filter, qos)
+    }
+
+    // Restore packet IDs that are in use
+    const usedIds: number[] = []
+    for (const flow of state.outboundFlows.values()) {
+      usedIds.push(flow.packetId)
+    }
+    for (const flow of state.inboundFlows.values()) {
+      usedIds.push(flow.packetId)
+    }
+    for (const op of state.pendingOperations.values()) {
+      usedIds.push(op.packetId)
+    }
+    this.packetIds.restore(usedIds)
+
+    // Store client ID for session tracking
+    this.storedClientId = state.clientId
+  }
+
+  /**
+   * Check if session state exists for potential resumption.
+   */
+  hasSessionState(): boolean {
+    return (
+      this.qosFlows.outboundCount > 0 ||
+      this.qosFlows.inboundCount > 0 ||
+      this.pendingOps.size > 0 ||
+      this.subscriptions.size > 0
+    )
+  }
+
+  /**
+   * Get active subscriptions.
+   *
+   * @returns Map of topic filters to granted QoS levels
+   */
+  getSubscriptions(): ReadonlyMap<string, number> {
+    return this.subscriptions
+  }
+
+  // ---------------------------------------------------------------------------
+  // Private: Session Resumption
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Resend pending QoS flows after session resumption.
+   */
+  private async resendPendingFlows(): Promise<void> {
+    const now = Date.now()
+
+    // Resend outbound PUBLISH messages with DUP flag
+    for (const flow of this.qosFlows.getAllOutbound().values()) {
+      if (flow.type === "qos1-outbound") {
+        // Resend PUBLISH with DUP=true
+        const dupPacket: PublishPacket = {
+          ...flow.packet,
+          dup: true
+        }
+        await this.sendPacket(dupPacket)
+        this.qosFlows.incrementRetry(flow.packetId, now)
+      } else if (flow.state === "awaiting-pubrec") {
+        // QoS 2 awaiting PUBREC: resend PUBLISH with DUP=true
+        const dupPacket: PublishPacket = {
+          ...flow.packet,
+          dup: true
+        }
+        await this.sendPacket(dupPacket)
+        this.qosFlows.incrementRetry(flow.packetId, now)
+      } else {
+        // QoS 2 awaiting PUBCOMP: resend PUBREL
+        const pubrel: PubrelPacket = {
+          type: PacketType.PUBREL,
+          packetId: flow.packetId
+        }
+        await this.sendPacket(pubrel)
+        this.qosFlows.incrementRetry(flow.packetId, now)
+      }
+    }
+
+    // No need to resend inbound flows - they're waiting for server's PUBREL
   }
 }

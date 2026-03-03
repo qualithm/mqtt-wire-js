@@ -91,6 +91,70 @@ describe("MqttWire", () => {
       expect(sentPackets).toHaveLength(1)
       // Packet was sent - we can't easily decode it but at least it was sent
     })
+
+    it("accepts valid will message", async () => {
+      const { wire, sentPackets } = createWire()
+
+      await wire.connect({
+        clientId: "test-client",
+        will: {
+          topic: "last/will/topic",
+          payload: new Uint8Array([0x62, 0x79, 0x65]),
+          qos: 1,
+          retain: false
+        }
+      })
+
+      expect(sentPackets).toHaveLength(1)
+    })
+
+    it("rejects will with invalid topic", async () => {
+      const { wire } = createWire()
+
+      await expect(
+        wire.connect({
+          clientId: "test-client",
+          will: {
+            topic: "invalid/+/topic",
+            payload: new Uint8Array(),
+            qos: 0,
+            retain: false
+          }
+        })
+      ).rejects.toThrow("will topic invalid")
+    })
+
+    it("rejects will with empty topic", async () => {
+      const { wire } = createWire()
+
+      await expect(
+        wire.connect({
+          clientId: "test-client",
+          will: {
+            topic: "",
+            payload: new Uint8Array(),
+            qos: 0,
+            retain: false
+          }
+        })
+      ).rejects.toThrow("will topic invalid")
+    })
+
+    it("rejects will with invalid QoS", async () => {
+      const { wire } = createWire()
+
+      await expect(
+        wire.connect({
+          clientId: "test-client",
+          will: {
+            topic: "valid/topic",
+            payload: new Uint8Array(),
+            qos: 3 as 0,
+            retain: false
+          }
+        })
+      ).rejects.toThrow("will QoS must be 0, 1, or 2")
+    })
   })
 
   describe("CONNACK handling", () => {
@@ -1170,6 +1234,292 @@ describe("MqttWire", () => {
       })
 
       expect(onError).toHaveBeenCalled()
+    })
+  })
+
+  describe("session state persistence", () => {
+    async function connectedWire(hooks: Partial<LifecycleHooks> = {}): Promise<{
+      wire: MqttWire
+      sentPackets: Uint8Array[]
+    }> {
+      const sentPackets: Uint8Array[] = []
+      const onSend = async (data: Uint8Array): Promise<void> => {
+        await Promise.resolve()
+        sentPackets.push(data)
+      }
+      const wire = new MqttWire({ onSend, ...hooks })
+      await wire.connect({ clientId: "test-client" })
+      await receivePacket(wire, {
+        type: PacketType.CONNACK,
+        sessionPresent: false,
+        reasonCode: 0x00
+      })
+      return { wire, sentPackets }
+    }
+
+    describe("exportSessionState", () => {
+      it("returns null when no client ID", () => {
+        const wire = new MqttWire({ onSend: vi.fn() })
+        expect(wire.exportSessionState()).toBeNull()
+      })
+
+      it("exports session with client ID after connect", async () => {
+        const { wire } = await connectedWire()
+        const state = wire.exportSessionState()
+
+        expect(state).not.toBeNull()
+        expect(state?.clientId).toBe("test-client")
+        expect(state?.outboundFlows).toBeInstanceOf(Map)
+        expect(state?.inboundFlows).toBeInstanceOf(Map)
+        expect(state?.pendingOperations).toBeInstanceOf(Map)
+        expect(state?.subscriptions).toBeInstanceOf(Map)
+      })
+
+      it("exports pending QoS 1 flows", async () => {
+        const { wire } = await connectedWire()
+
+        // Publish QoS 1 without receiving PUBACK
+        await wire.publish("test/topic", new Uint8Array([1, 2, 3]), { qos: 1 })
+
+        const state = wire.exportSessionState()
+        expect(state?.outboundFlows.size).toBe(1)
+
+        const flow = state?.outboundFlows.get(1)
+        expect(flow?.type).toBe("qos1-outbound")
+      })
+
+      it("exports active subscriptions", async () => {
+        const { wire } = await connectedWire()
+
+        await wire.subscribe([{ topicFilter: "test/#", options: { qos: 1 } }])
+
+        // Receive SUBACK
+        const suback: SubackPacket = {
+          type: PacketType.SUBACK,
+          packetId: 1,
+          reasonCodes: [1] // Granted QoS 1
+        }
+        await receivePacket(wire, suback)
+
+        const state = wire.exportSessionState()
+        expect(state?.subscriptions.size).toBe(1)
+        expect(state?.subscriptions.get("test/#")).toBe(1)
+      })
+    })
+
+    describe("restoreSessionState", () => {
+      it("throws when not disconnected", async () => {
+        const { wire } = await connectedWire()
+
+        const state = wire.exportSessionState()
+        expect(() => {
+          wire.restoreSessionState(state!)
+        }).toThrow("cannot restore session")
+      })
+
+      it("restores session state", async () => {
+        const { wire } = await connectedWire()
+
+        // Create some state
+        await wire.publish("test/topic", new Uint8Array([1]), { qos: 1 })
+        await wire.subscribe([{ topicFilter: "test/#", options: { qos: 1 } }])
+        await receivePacket(wire, {
+          type: PacketType.SUBACK,
+          packetId: 2,
+          reasonCodes: [1]
+        } as SubackPacket)
+
+        const state = wire.exportSessionState()
+        await wire.disconnect()
+
+        // Create new wire and restore
+        const wire2 = new MqttWire({ onSend: vi.fn() })
+        wire2.restoreSessionState(state!)
+
+        expect(wire2.hasSessionState()).toBe(true)
+        expect(wire2.getSubscriptions().size).toBe(1)
+      })
+
+      it("does not restore expired session", async () => {
+        const wire = new MqttWire({ onSend: vi.fn() }, { sessionExpiryInterval: 1 })
+        await wire.connect({ clientId: "test" })
+        await receivePacket(wire, {
+          type: PacketType.CONNACK,
+          sessionPresent: false,
+          reasonCode: 0x00
+        })
+
+        // Create some state
+        await wire.publish("test/topic", new Uint8Array([1]), { qos: 1 })
+        const state = wire.exportSessionState()
+        await wire.disconnect()
+
+        // Manually expire the session
+        const expiredState = { ...state!, expiresAt: Date.now() - 1000 }
+
+        // Create new wire and try to restore
+        const wire2 = new MqttWire({ onSend: vi.fn() })
+        wire2.restoreSessionState(expiredState)
+
+        expect(wire2.hasSessionState()).toBe(false)
+      })
+    })
+
+    describe("session resumption", () => {
+      it("resends pending QoS 1 messages on session resume", async () => {
+        const sentPackets: Uint8Array[] = []
+        const wire = new MqttWire({
+          async onSend(data): Promise<void> {
+            await Promise.resolve()
+            sentPackets.push(data)
+          }
+        })
+
+        await wire.connect({ clientId: "test" })
+        await receivePacket(wire, {
+          type: PacketType.CONNACK,
+          sessionPresent: false,
+          reasonCode: 0x00
+        })
+
+        // Publish QoS 1
+        await wire.publish("test/topic", new Uint8Array([1, 2, 3]), { qos: 1 })
+
+        const state = wire.exportSessionState()
+        await wire.disconnect()
+
+        // Create new wire with restored state
+        const sentPackets2: Uint8Array[] = []
+        const wire2 = new MqttWire({
+          async onSend(data): Promise<void> {
+            await Promise.resolve()
+            sentPackets2.push(data)
+          }
+        })
+        wire2.restoreSessionState(state!)
+
+        // Reconnect with cleanStart=false
+        await wire2.connect({ clientId: "test", cleanStart: false })
+        const packetsBeforeConnack = sentPackets2.length
+
+        // Server resumes session
+        await receivePacket(wire2, {
+          type: PacketType.CONNACK,
+          sessionPresent: true,
+          reasonCode: 0x00
+        })
+
+        // Should have resent the PUBLISH with DUP flag
+        expect(sentPackets2.length).toBeGreaterThan(packetsBeforeConnack)
+      })
+
+      it("calls onSessionLost when server does not resume", async () => {
+        const onSessionLost = vi.fn()
+        const wire = new MqttWire({ onSend: vi.fn(), onSessionLost })
+
+        await wire.connect({ clientId: "test" })
+        await receivePacket(wire, {
+          type: PacketType.CONNACK,
+          sessionPresent: false,
+          reasonCode: 0x00
+        })
+
+        // Create some state
+        await wire.subscribe([{ topicFilter: "test/#", options: { qos: 1 } }])
+        await receivePacket(wire, {
+          type: PacketType.SUBACK,
+          packetId: 1,
+          reasonCodes: [1]
+        } as SubackPacket)
+
+        const state = wire.exportSessionState()
+        await wire.disconnect()
+
+        // New wire with restored state
+        const wire2 = new MqttWire({ onSend: vi.fn(), onSessionLost })
+        wire2.restoreSessionState(state!)
+
+        // Connect expecting session resumption
+        await wire2.connect({ clientId: "test", cleanStart: false })
+
+        // Server does NOT have session
+        await receivePacket(wire2, {
+          type: PacketType.CONNACK,
+          sessionPresent: false,
+          reasonCode: 0x00
+        })
+
+        // Hook should be called
+        expect(onSessionLost).toHaveBeenCalled()
+
+        // State should be cleared
+        expect(wire2.hasSessionState()).toBe(false)
+      })
+
+      it("does not call onSessionLost when cleanStart=true", async () => {
+        const onSessionLost = vi.fn()
+        const wire = new MqttWire({ onSend: vi.fn(), onSessionLost })
+
+        await wire.connect({ clientId: "test", cleanStart: true })
+        await receivePacket(wire, {
+          type: PacketType.CONNACK,
+          sessionPresent: false,
+          reasonCode: 0x00
+        })
+
+        expect(onSessionLost).not.toHaveBeenCalled()
+      })
+    })
+
+    describe("hasSessionState", () => {
+      it("returns false for fresh wire", () => {
+        const wire = new MqttWire({ onSend: vi.fn() })
+        expect(wire.hasSessionState()).toBe(false)
+      })
+
+      it("returns true when there are pending QoS flows", async () => {
+        const { wire } = await connectedWire()
+        await wire.publish("test/topic", new Uint8Array([1]), { qos: 1 })
+
+        expect(wire.hasSessionState()).toBe(true)
+      })
+
+      it("returns true when there are active subscriptions", async () => {
+        const { wire } = await connectedWire()
+        await wire.subscribe([{ topicFilter: "test/#", options: { qos: 0 } }])
+        await receivePacket(wire, {
+          type: PacketType.SUBACK,
+          packetId: 1,
+          reasonCodes: [0]
+        } as SubackPacket)
+
+        expect(wire.hasSessionState()).toBe(true)
+      })
+    })
+
+    describe("getSubscriptions", () => {
+      it("returns empty map initially", () => {
+        const wire = new MqttWire({ onSend: vi.fn() })
+        expect(wire.getSubscriptions().size).toBe(0)
+      })
+
+      it("returns active subscriptions", async () => {
+        const { wire } = await connectedWire()
+        await wire.subscribe([
+          { topicFilter: "topic1", options: { qos: 0 } },
+          { topicFilter: "topic2", options: { qos: 1 } }
+        ])
+        await receivePacket(wire, {
+          type: PacketType.SUBACK,
+          packetId: 1,
+          reasonCodes: [0, 1]
+        } as SubackPacket)
+
+        const subs = wire.getSubscriptions()
+        expect(subs.size).toBe(2)
+        expect(subs.get("topic1")).toBe(0)
+        expect(subs.get("topic2")).toBe(1)
+      })
     })
   })
 })
