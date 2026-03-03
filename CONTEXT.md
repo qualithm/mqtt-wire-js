@@ -38,17 +38,22 @@ storage, session persistence, and will message publishing.
 
 ### Modules
 
-| Module             | Purpose                              |
-| ------------------ | ------------------------------------ |
-| `index.ts`         | Main entry point                     |
-| `types.ts`         | Core primitives: DecodeResult, QoS   |
-| `constants.ts`     | Packet types, property IDs, limits   |
-| `codec/varint.ts`  | Variable byte integer codec (§2.2.3) |
-| `codec/utf8.ts`    | UTF-8 validation, MQTT strings       |
-| `codec/reader.ts`  | Binary reader with bounds checking   |
-| `codec/writer.ts`  | Binary writer, size calculator       |
-| `codec/framing.ts` | Stream framing, packet reassembly    |
-| `topic.ts`         | Topic validation, matching, shared   |
+| Module                 | Purpose                                |
+| ---------------------- | -------------------------------------- |
+| `index.ts`             | Main entry point                       |
+| `types.ts`             | Core primitives: DecodeResult, QoS     |
+| `constants.ts`         | Packet types, property IDs, limits     |
+| `codec/varint.ts`      | Variable byte integer codec (§2.2.3)   |
+| `codec/utf8.ts`        | UTF-8 validation, MQTT strings         |
+| `codec/reader.ts`      | Binary reader with bounds checking     |
+| `codec/writer.ts`      | Binary writer, size calculator         |
+| `codec/framing.ts`     | Stream framing, packet reassembly      |
+| `topic.ts`             | Topic validation, matching, shared     |
+| `wire.ts`              | MqttWire state machine, lifecycle      |
+| `state/types.ts`       | Connection states, flow types, options |
+| `state/packet-id.ts`   | Packet ID allocation and recycling     |
+| `state/qos-flow.ts`    | QoS 1/2 flow tracking                  |
+| `state/topic-alias.ts` | MQTT 5.0 topic alias management        |
 
 ### Directory Structure
 
@@ -61,22 +66,25 @@ storage, session persistence, and will message publishing.
 
 ### Features
 
-| Feature            | Status      | Notes                        |
-| ------------------ | ----------- | ---------------------------- |
-| Core primitives    | Complete    | DecodeResult, QoS, types     |
-| Protocol constants | Complete    | Packet types, properties     |
-| Variable byte int  | Complete    | §2.2.3 test vectors pass     |
-| UTF-8 validation   | Complete    | §1.5.4 malformed rejected    |
-| Binary reader      | Complete    | Bounds-checked cursor        |
-| Binary writer      | Complete    | Auto-growing, size calc      |
-| Stream framing     | Complete    | Chunk-split tests pass       |
-| Packet encoding    | Complete    | All 15 packet types          |
-| Packet decoding    | Complete    | 5.0 properties, 3.1.1 compat |
-| QoS handling       | Not started | —                            |
-| Keepalive          | Not started | —                            |
-| Lifecycle hooks    | Not started | —                            |
-| Topic utilities    | Complete    | Validation, matching, shared |
-| Testing utilities  | Not started | Subpath `mqtt-wire/testing`  |
+| Feature            | Status      | Notes                              |
+| ------------------ | ----------- | ---------------------------------- |
+| Core primitives    | Complete    | DecodeResult, QoS, types           |
+| Protocol constants | Complete    | Packet types, properties           |
+| Variable byte int  | Complete    | §2.2.3 test vectors pass           |
+| UTF-8 validation   | Complete    | §1.5.4 malformed rejected          |
+| Binary reader      | Complete    | Bounds-checked cursor              |
+| Binary writer      | Complete    | Auto-growing, size calc            |
+| Stream framing     | Complete    | Chunk-split tests pass             |
+| Packet encoding    | Complete    | All 15 packet types                |
+| Packet decoding    | Complete    | 5.0 properties, 3.1.1 compat       |
+| QoS handling       | Complete    | QoS 1/2 flow tracking via MqttWire |
+| Keepalive          | Complete    | 1.5x timeout, PINGREQ on idle      |
+| Lifecycle hooks    | Complete    | onConnect, onPublish, onSend, etc  |
+| Topic aliases      | Complete    | MQTT 5.0 bidirectional aliasing    |
+| Packet ID alloc    | Complete    | Sequential with wraparound         |
+| Topic utilities    | Complete    | Validation, matching, shared       |
+| MqttWire class     | Complete    | Connection state machine           |
+| Testing utilities  | Not started | Subpath `mqtt-wire/testing`        |
 
 ---
 
@@ -157,14 +165,16 @@ storage, session persistence, and will message publishing.
 **Exit:** ✓ Encode/decode symmetry; reject malformed; fast-check fuzzing passes; topic spec examples
 work.
 
-### State Machine
+### State Machine ✓
 
-- [ ] Connection states, QoS 1/2 flows, keepalive (1.5x), packet ID recycling
-- [ ] Topic alias resolution, receive maximum flow control
-- [ ] Session state, will message handling, subscription options
-- [ ] MqttWire class: receive(), deliver(), disconnect(), hooks, lifecycle
+- [x] Connection states, QoS 1/2 flows, keepalive (1.5x), packet ID recycling
+- [x] Topic alias resolution, receive maximum flow control
+- [x] MqttWire class: receive(), publish(), subscribe(), disconnect(), hooks, lifecycle
+- [ ] Session state persistence (for reconnect with cleanStart=false)
+- [ ] Will message handling
 
-**Exit:** Full connect→disconnect sequence works; QoS 2 transitions correct; passes Mosquitto/EMQX.
+**Exit:** ✓ Unit tests pass; MqttWire provides full protocol handling. Conformance testing against
+Mosquitto/EMQX pending in Infrastructure phase.
 
 ### Infrastructure
 
@@ -184,3 +194,4 @@ work.
 | Date       | Learning                                                                        |
 | ---------- | ------------------------------------------------------------------------------- |
 | 2025-07-16 | StreamFramer.push() must preserve unconsumed buffer data when new chunks arrive |
+| 2026-03-03 | MqttWire setInterval keepalive must use void/catch pattern, not async callback  |

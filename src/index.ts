@@ -123,3 +123,44 @@ export {
   WILDCARD_MULTI,
   WILDCARD_SINGLE
 } from "./topic.js"
+
+// State machine
+export type {
+  AckResult,
+  ConnectionState,
+  ConnectionStateChange,
+  InboundFlow,
+  LifecycleHooks,
+  MqttWireOptions,
+  OnConnectHook,
+  OnDisconnectHook,
+  OnErrorHook,
+  OnPublishHook,
+  OnSendHook,
+  OnSubscribeHook,
+  OnUnsubscribeHook,
+  OutboundFlow,
+  PendingOperation,
+  PendingSubscribe,
+  PendingUnsubscribe,
+  QoS1InboundFlow,
+  QoS1OutboundFlow,
+  QoS2InboundFlow,
+  QoS2InboundState,
+  QoS2OutboundFlow,
+  QoS2OutboundState,
+  QoSFlow,
+  SessionState
+} from "./state/index.js"
+export {
+  DEFAULT_WIRE_OPTIONS,
+  PacketIdAllocator,
+  PacketIdExhaustedError,
+  QoSFlowTracker,
+  TopicAliasError,
+  TopicAliasManager,
+  TopicAliasMap
+} from "./state/index.js"
+
+// MqttWire
+export { MqttWire, ProtocolError, StateError } from "./wire.js"
