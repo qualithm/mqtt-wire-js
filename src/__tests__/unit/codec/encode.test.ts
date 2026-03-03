@@ -482,5 +482,19 @@ describe("encodePacket", () => {
       expect(bytes[0]).toBe(0xf0)
       expect(bytes.length).toBeGreaterThan(2)
     })
+
+    it("encodes AUTH with non-zero reason code but no properties", () => {
+      const packet: AuthPacket = {
+        type: PacketType.AUTH,
+        reasonCode: 0x19 // re-authenticate
+      }
+
+      const bytes = encodePacket(packet, "5.0")
+
+      expect(bytes[0]).toBe(0xf0) // AUTH packet type
+      expect(bytes[1]).toBe(0x02) // remaining length = 2 (reason code + empty props)
+      expect(bytes[2]).toBe(0x19) // reason code
+      expect(bytes[3]).toBe(0x00) // empty properties
+    })
   })
 })

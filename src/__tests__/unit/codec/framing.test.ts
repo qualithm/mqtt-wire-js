@@ -362,4 +362,87 @@ describe("StreamFramer", () => {
       }
     })
   })
+
+  describe("bufferedLength", () => {
+    it("returns 0 for empty framer", () => {
+      const framer = new StreamFramer()
+      expect(framer.bufferedLength).toBe(0)
+    })
+
+    it("returns correct length after push", () => {
+      const framer = new StreamFramer()
+      framer.push(new Uint8Array([0x30, 0x05, 0x01]))
+      expect(framer.bufferedLength).toBe(3)
+    })
+
+    it("returns remaining length after partial read", () => {
+      const framer = new StreamFramer()
+      // Push a complete packet followed by incomplete data
+      framer.push(new Uint8Array([0xc0, 0x00, 0x30, 0x05, 0x01]))
+
+      // Read complete packet
+      const result = framer.read()
+      expect(result.status).toBe("complete")
+
+      // Should have 3 bytes remaining (incomplete packet)
+      expect(framer.bufferedLength).toBe(3)
+    })
+
+    it("tracks length across multiple pushes", () => {
+      const framer = new StreamFramer()
+      framer.push(new Uint8Array([0x30]))
+      framer.push(new Uint8Array([0x05]))
+      framer.push(new Uint8Array([0x01, 0x02]))
+      expect(framer.bufferedLength).toBe(4)
+    })
+  })
+
+  describe("compaction", () => {
+    it("compacts buffer after consuming more than half", () => {
+      const framer = new StreamFramer()
+
+      // Push multiple small packets
+      for (let i = 0; i < 10; i++) {
+        framer.push(new Uint8Array([0xc0, 0x00])) // PINGREQ
+      }
+
+      // Read all packets
+      for (let i = 0; i < 10; i++) {
+        const result = framer.read()
+        expect(result.status).toBe("complete")
+      }
+
+      // Buffer should be empty and compacted
+      expect(framer.bufferedLength).toBe(0)
+    })
+
+    it("handles large packet followed by small packet", () => {
+      const framer = new StreamFramer()
+
+      // Create a larger packet (PUBLISH with data)
+      const largePacket = new Uint8Array(100)
+      largePacket[0] = 0x30 // PUBLISH QoS 0
+      largePacket[1] = 98 // remaining length
+      largePacket[2] = 0x00
+      largePacket[3] = 0x04
+      largePacket[4] = 0x74 // t
+      largePacket[5] = 0x65 // e
+      largePacket[6] = 0x73 // s
+      largePacket[7] = 0x74 // t
+      largePacket[8] = 0x00 // empty properties for 5.0
+      // Rest is payload
+
+      framer.push(largePacket)
+      framer.push(new Uint8Array([0xc0, 0x00])) // PINGREQ
+
+      // Read both packets
+      let result = framer.read()
+      expect(result.status).toBe("complete")
+
+      result = framer.read()
+      expect(result.status).toBe("complete")
+
+      expect(framer.bufferedLength).toBe(0)
+    })
+  })
 })
