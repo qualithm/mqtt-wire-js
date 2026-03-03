@@ -60,22 +60,22 @@ storage, session persistence, and will message publishing.
 
 ### Features
 
-| Feature            | Status      | Notes                       |
-| ------------------ | ----------- | --------------------------- |
-| Core primitives    | Complete    | DecodeResult, QoS, types    |
-| Protocol constants | Complete    | Packet types, properties    |
-| Variable byte int  | Complete    | §2.2.3 test vectors pass    |
-| UTF-8 validation   | Complete    | §1.5.4 malformed rejected   |
-| Binary reader      | Complete    | Bounds-checked cursor       |
-| Binary writer      | Complete    | Auto-growing, size calc     |
-| Stream framing     | Complete    | Chunk-split tests pass      |
-| Packet encoding    | Not started | —                           |
-| Packet decoding    | Not started | —                           |
-| QoS handling       | Not started | —                           |
-| Keepalive          | Not started | —                           |
-| Lifecycle hooks    | Not started | —                           |
-| Topic utilities    | Not started | —                           |
-| Testing utilities  | Not started | Subpath `mqtt-wire/testing` |
+| Feature            | Status      | Notes                        |
+| ------------------ | ----------- | ---------------------------- |
+| Core primitives    | Complete    | DecodeResult, QoS, types     |
+| Protocol constants | Complete    | Packet types, properties     |
+| Variable byte int  | Complete    | §2.2.3 test vectors pass     |
+| UTF-8 validation   | Complete    | §1.5.4 malformed rejected    |
+| Binary reader      | Complete    | Bounds-checked cursor        |
+| Binary writer      | Complete    | Auto-growing, size calc      |
+| Stream framing     | Complete    | Chunk-split tests pass       |
+| Packet encoding    | Complete    | All 15 packet types          |
+| Packet decoding    | Complete    | 5.0 properties, 3.1.1 compat |
+| QoS handling       | Not started | —                            |
+| Keepalive          | Not started | —                            |
+| Lifecycle hooks    | Not started | —                            |
+| Topic utilities    | Not started | —                            |
+| Testing utilities  | Not started | Subpath `mqtt-wire/testing`  |
 
 ---
 
@@ -149,8 +149,8 @@ storage, session persistence, and will message publishing.
 
 ### Packet Codec
 
-- [ ] Packet types as discriminated union; encode/decode all 15 packet types
-- [ ] All 5.0 properties; reason codes with 3.1.1 compat
+- [x] Packet types as discriminated union; encode/decode all 15 packet types
+- [x] All 5.0 properties; reason codes with 3.1.1 compat
 - [ ] Topic utilities: parse, match (+/#), validate, shared subscription parsing
 
 **Exit:** Encode/decode symmetry; reject malformed; fast-check fuzzing passes; topic spec examples

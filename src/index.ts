@@ -67,3 +67,41 @@ export {
   variableByteIntegerLength,
   type VarintDecodeValue
 } from "./codec/index.js"
+
+// Packet types and codec
+export type {
+  AuthPacket,
+  AuthProperties,
+  ConnackPacket,
+  ConnackProperties,
+  ConnectPacket,
+  ConnectProperties,
+  DecodedPacket,
+  DisconnectPacket,
+  DisconnectProperties,
+  MqttPacket,
+  PacketOfType,
+  PingreqPacket,
+  PingrespPacket,
+  PubackPacket,
+  PubAckProperties,
+  PubcompPacket,
+  PublishPacket,
+  PublishProperties,
+  PubrecPacket,
+  PubrelPacket,
+  SubackPacket,
+  SubackProperties,
+  SubscribePacket,
+  SubscribeProperties,
+  Subscription,
+  SubscriptionOptions,
+  UnsubackPacket,
+  UnsubackProperties,
+  UnsubscribePacket,
+  UnsubscribeProperties,
+  UserProperty,
+  WillMessage,
+  WillProperties
+} from "./packets/index.js"
+export { decodePacket, encodePacket } from "./packets/index.js"
