@@ -1,87 +1,151 @@
 import { describe, expect, it } from "vitest"
 
 import { PacketType } from "../../../constants.js"
-import { encodePacket } from "../../../packets/index.js"
-import {
-  connack,
-  createFullTestHarness,
-  createTestHarness,
-  puback,
-  pubcomp,
-  publish,
-  pubrec,
-  suback,
-  TestHarness,
-  unsuback
-} from "../../../testing/index.js"
+import { createTestHarness, TestHarness } from "../../../testing/index.js"
 
 describe("testing/harness", () => {
   describe("TestHarness", () => {
-    it("creates MqttWire instance", () => {
+    it("creates MqttWire instance in awaiting-connect state", () => {
       const harness = new TestHarness()
 
       expect(harness.wire).toBeDefined()
-      expect(harness.wire.connectionState).toBe("disconnected")
+      expect(harness.wire.connectionState).toBe("awaiting-connect")
     })
 
-    it("captures sent packets", async () => {
+    it("handles client CONNECT and sends CONNACK", async () => {
       const harness = new TestHarness()
-      harness.onConnect(() => connack().build())
 
-      await harness.wire.connect({ clientId: "test" })
-
-      expect(harness.sentPackets).toHaveLength(1)
-      expect(harness.sentPackets[0].packet?.type).toBe(PacketType.CONNECT)
-    })
-
-    it("auto-responds to CONNECT", async () => {
-      const harness = new TestHarness()
-      harness.onConnect(() => connack().sessionPresent().build())
-
-      await harness.wire.connect({ clientId: "test" })
+      await harness.clientConnect({ clientId: "test" })
 
       expect(harness.wire.isConnected).toBe(true)
-      expect(harness.hookCalls.onConnect).toHaveLength(1)
-      expect(harness.hookCalls.onConnect[0].sessionPresent).toBe(true)
+      expect(harness.wire.clientId).toBe("test")
+      expect(harness.sentPackets).toHaveLength(1)
+      expect(harness.sentPackets[0].packet?.type).toBe(PacketType.CONNACK)
     })
 
-    it("simulates receiving packets", async () => {
+    it("records onConnect hook call", async () => {
       const harness = new TestHarness()
-      harness.onConnect(() => connack().build())
-      await harness.wire.connect({ clientId: "test" })
 
-      await harness.receive(publish("topic").payload("hello").build())
+      await harness.clientConnect({ clientId: "test-client" })
+
+      expect(harness.hookCalls.onConnect).toHaveLength(1)
+      expect(harness.hookCalls.onConnect[0].clientId).toBe("test-client")
+    })
+
+    it("supports custom onConnect handler", async () => {
+      const harness = new TestHarness()
+      harness.setOnConnect(() => ({
+        type: PacketType.CONNACK,
+        sessionPresent: true,
+        reasonCode: 0x00
+      }))
+
+      await harness.clientConnect()
+
+      const connack = harness.lastSentPacketOfType(PacketType.CONNACK)
+      expect(connack?.sessionPresent).toBe(true)
+    })
+
+    it("handles client PUBLISH QoS 0", async () => {
+      const harness = new TestHarness()
+      await harness.clientConnect()
+
+      await harness.clientPublish("test/topic", "hello world")
 
       expect(harness.hookCalls.onPublish).toHaveLength(1)
-      expect(harness.hookCalls.onPublish[0].topic).toBe("topic")
+      expect(harness.hookCalls.onPublish[0].topic).toBe("test/topic")
     })
 
-    it("enables auto-PINGRESP by default", async () => {
+    it("handles client PUBLISH QoS 1 with PUBACK", async () => {
       const harness = new TestHarness()
-      harness.onConnect(() => connack().build())
-      await harness.wire.connect({ clientId: "test" })
+      await harness.clientConnect()
+      const initialPackets = harness.sentPackets.length
 
-      // Clear to isolate the test
-      harness.clear()
+      await harness.clientPublish("test/topic", "hello", { qos: 1, packetId: 1 })
 
-      // Auto-PINGRESP is enabled by default - this is verified by
-      // the fact that createTestHarness() uses autoPingresp: true
-      expect(harness.wire.isConnected).toBe(true)
+      expect(harness.hookCalls.onPublish).toHaveLength(1)
+      expect(harness.sentPackets.length).toBe(initialPackets + 1)
+      const puback = harness.lastSentPacketOfType(PacketType.PUBACK)
+      expect(puback?.packetId).toBe(1)
     })
 
-    it("records hook calls", async () => {
+    it("handles client PUBLISH QoS 2 flow", async () => {
       const harness = new TestHarness()
-      harness.onConnect(() => connack().build())
-      await harness.wire.connect({ clientId: "test" })
+      await harness.clientConnect()
 
-      expect(harness.hookCalls.onConnect).toHaveLength(1)
-      expect(harness.hookCalls.onPublish).toHaveLength(0)
+      // Client sends PUBLISH QoS 2
+      await harness.clientPublish("test/topic", "hello", { qos: 2, packetId: 1 })
+      expect(harness.lastSentPacketOfType(PacketType.PUBREC)).toBeDefined()
+      expect(harness.hookCalls.onPublish).toHaveLength(0) // Not yet delivered
+
+      // Client sends PUBREL
+      await harness.clientPubrel(1)
+      expect(harness.lastSentPacketOfType(PacketType.PUBCOMP)).toBeDefined()
+      expect(harness.hookCalls.onPublish).toHaveLength(1) // Now delivered
+    })
+
+    it("handles client SUBSCRIBE", async () => {
+      const harness = new TestHarness()
+      await harness.clientConnect()
+
+      await harness.clientSubscribe("test/#")
+
+      expect(harness.hookCalls.onSubscribe).toHaveLength(1)
+      expect(harness.hookCalls.onSubscribe[0].subscriptions[0].topicFilter).toBe("test/#")
+      const suback = harness.lastSentPacketOfType(PacketType.SUBACK)
+      expect(suback).toBeDefined()
+    })
+
+    it("handles client SUBSCRIBE with custom handler", async () => {
+      const harness = new TestHarness()
+      harness.setOnSubscribe((packet) => ({
+        type: PacketType.SUBACK,
+        packetId: packet.packetId,
+        reasonCodes: [0x80] // Reject all
+      }))
+      await harness.clientConnect()
+
+      await harness.clientSubscribe([{ topicFilter: "test/#", qos: 1 }])
+
+      const suback = harness.lastSentPacketOfType(PacketType.SUBACK)
+      expect(suback?.reasonCodes[0]).toBe(0x80)
+    })
+
+    it("handles client UNSUBSCRIBE", async () => {
+      const harness = new TestHarness()
+      await harness.clientConnect()
+
+      await harness.clientUnsubscribe(["test/#", "other/+"])
+
+      expect(harness.hookCalls.onUnsubscribe).toHaveLength(1)
+      const unsuback = harness.lastSentPacketOfType(PacketType.UNSUBACK)
+      expect(unsuback).toBeDefined()
+    })
+
+    it("handles client PINGREQ with PINGRESP", async () => {
+      const harness = new TestHarness()
+      await harness.clientConnect()
+      const initialPackets = harness.sentPackets.length
+
+      await harness.clientPing()
+
+      expect(harness.sentPackets.length).toBe(initialPackets + 1)
+      expect(harness.lastSentPacketOfType(PacketType.PINGRESP)).toBeDefined()
+    })
+
+    it("handles client DISCONNECT", async () => {
+      const harness = new TestHarness()
+      await harness.clientConnect()
+
+      await harness.clientDisconnect()
+
+      expect(harness.hookCalls.onDisconnect).toHaveLength(1)
+      expect(harness.wire.connectionState).toBe("disconnected")
     })
 
     it("clears all state", async () => {
       const harness = new TestHarness()
-      harness.onConnect(() => connack().build())
-      await harness.wire.connect({ clientId: "test" })
+      await harness.clientConnect()
 
       harness.clear()
 
@@ -91,363 +155,74 @@ describe("testing/harness", () => {
 
     it("provides helper getters", async () => {
       const harness = new TestHarness()
-      harness.onConnect(() => connack().build())
-      await harness.wire.connect({ clientId: "test" })
+      await harness.clientConnect()
 
-      expect(harness.lastSentPacket?.packet?.type).toBe(PacketType.CONNECT)
-      expect(harness.lastSentPacketOfType(PacketType.CONNECT)).toBeDefined()
-      expect(harness.getSentPacketsOfType(PacketType.CONNECT)).toHaveLength(1)
+      expect(harness.lastSentPacket?.packet?.type).toBe(PacketType.CONNACK)
+      expect(harness.lastSentPacketOfType(PacketType.CONNACK)).toBeDefined()
+      expect(harness.getSentPacketsOfType(PacketType.CONNACK)).toHaveLength(1)
+    })
+
+    it("supports MQTT 3.1.1", async () => {
+      const harness = new TestHarness()
+
+      await harness.clientConnect({ protocolVersion: "3.1.1" })
+
+      expect(harness.wire.isConnected).toBe(true)
+      expect(harness.version).toBe("3.1.1")
+    })
+
+    it("supports server publish to client", async () => {
+      const harness = new TestHarness()
+      await harness.clientConnect()
+      const initialPackets = harness.sentPackets.length
+
+      await harness.wire.publish("response/topic", new Uint8Array([1, 2, 3]))
+
+      expect(harness.sentPackets.length).toBe(initialPackets + 1)
+      const publish = harness.lastSentPacketOfType(PacketType.PUBLISH)
+      expect(publish?.topic).toBe("response/topic")
+    })
+
+    it("waits for condition", async () => {
+      const harness = new TestHarness()
+      await harness.clientConnect()
+
+      // Already has 1 packet (CONNACK)
+      await harness.waitFor(() => harness.sentPackets.length >= 1)
+      expect(harness.sentPackets.length).toBe(1)
+    })
+
+    it("waits for sent packets count", async () => {
+      const harness = new TestHarness()
+      await harness.clientConnect()
+
+      await harness.waitForSentPackets(1)
+      expect(harness.sentPackets.length).toBe(1)
+    })
+
+    it("waits for sent packet of type", async () => {
+      const harness = new TestHarness()
+      await harness.clientConnect()
+
+      await harness.waitForSentPacketOfType(PacketType.CONNACK)
+      expect(harness.getSentPacketsOfType(PacketType.CONNACK)).toHaveLength(1)
     })
   })
 
   describe("createTestHarness", () => {
-    it("creates harness with default CONNACK responder", async () => {
+    it("creates harness with defaults", () => {
       const harness = createTestHarness()
-      await harness.wire.connect({ clientId: "test" })
 
-      expect(harness.wire.isConnected).toBe(true)
-    })
-  })
-
-  describe("createFullTestHarness", () => {
-    it("creates harness with all responders", async () => {
-      const harness = createFullTestHarness()
-      await harness.wire.connect({ clientId: "test" })
-
-      expect(harness.wire.isConnected).toBe(true)
-
-      // Publish should trigger auto-response
-      await harness.wire.publish("topic", new Uint8Array([1, 2, 3]), { qos: 1 })
-
-      // Should have PUBLISH sent and PUBACK received
-      const publishes = harness.getSentPacketsOfType(PacketType.PUBLISH)
-      expect(publishes).toHaveLength(1)
-    })
-
-    it("auto-responds to SUBSCRIBE", async () => {
-      const harness = createFullTestHarness()
-      await harness.wire.connect({ clientId: "test" })
-
-      await harness.wire.subscribe([{ topicFilter: "test/#", options: { qos: 1 } }])
-
-      expect(harness.hookCalls.onSubscribe).toHaveLength(1)
-      expect(harness.hookCalls.onSubscribe[0].response.reasonCodes).toContain(1)
-    })
-  })
-
-  describe("QoS 2 flow", () => {
-    it("handles PUBREC and PUBREL flow", async () => {
-      const harness = new TestHarness()
-      harness.onConnect(() => connack().build())
-      harness.onPublish((pub) => {
-        if (pub.qos === 2 && pub.packetId !== undefined) {
-          return pubrec(pub.packetId).build()
-        }
-        return null
-      })
-      harness.onPubrel((rel) => pubcomp(rel.packetId).build())
-
-      await harness.wire.connect({ clientId: "test" })
-      await harness.wire.publish("topic", new Uint8Array([1, 2, 3]), { qos: 2 })
-
-      // Should have PUBLISH sent
-      const publishes = harness.getSentPacketsOfType(PacketType.PUBLISH)
-      expect(publishes).toHaveLength(1)
-      expect(publishes[0].qos).toBe(2)
-    })
-
-    it("handles QoS 1 PUBACK flow", async () => {
-      const harness = new TestHarness()
-      harness.onConnect(() => connack().build())
-      harness.onPublish((pub) => {
-        if (pub.qos === 1 && pub.packetId !== undefined) {
-          return puback(pub.packetId).build()
-        }
-        return null
-      })
-
-      await harness.wire.connect({ clientId: "test" })
-      await harness.wire.publish("topic", new Uint8Array([1, 2, 3]), { qos: 1 })
-
-      const publishes = harness.getSentPacketsOfType(PacketType.PUBLISH)
-      expect(publishes).toHaveLength(1)
-    })
-
-    it("skips QoS 0 auto-response", async () => {
-      const harness = new TestHarness()
-      harness.onConnect(() => connack().build())
-      let callCount = 0
-      harness.onPublish(() => {
-        callCount++
-        return null
-      })
-
-      await harness.wire.connect({ clientId: "test" })
-      await harness.wire.publish("topic", new Uint8Array([1]), { qos: 0 })
-
-      // QoS 0 should not call the publishResponder since qos is 0
-      expect(callCount).toBe(0)
-    })
-  })
-
-  describe("receiveBytes", () => {
-    it("receives raw bytes", async () => {
-      const harness = new TestHarness()
-      harness.onConnect(() => connack().build())
-      await harness.wire.connect({ clientId: "test" })
-
-      const pub = publish("topic").payload("hello").build()
-      const encoded = encodePacket(pub, "5.0")
-      await harness.receiveBytes(encoded)
-
-      expect(harness.hookCalls.onPublish).toHaveLength(1)
-      expect(harness.hookCalls.onPublish[0].topic).toBe("topic")
-    })
-  })
-
-  describe("PINGREQ handling", () => {
-    it("auto-responds with PINGRESP when autoPingresp is true", async () => {
-      const harness = new TestHarness({ autoPingresp: true })
-      harness.onConnect(() => connack().build())
-      await harness.wire.connect({ clientId: "test" })
-
-      // Verify the autoPingresp option is set
-      expect(harness.wire.isConnected).toBe(true)
-    })
-
-    it("respects autoPingresp: false option", () => {
-      const harness = new TestHarness({ autoPingresp: false })
       expect(harness.wire).toBeDefined()
-    })
-  })
-
-  describe("UNSUBSCRIBE and DISCONNECT responders", () => {
-    it("auto-responds to UNSUBSCRIBE", async () => {
-      const harness = new TestHarness()
-      harness.onConnect(() => connack().build())
-      harness.onUnsubscribe((unsub) =>
-        unsuback(unsub.packetId).success(unsub.topicFilters.length).build()
-      )
-
-      await harness.wire.connect({ clientId: "test" })
-      await harness.wire.unsubscribe(["test/#"])
-
-      expect(harness.hookCalls.onUnsubscribe).toHaveLength(1)
+      expect(harness.wire.connectionState).toBe("awaiting-connect")
     })
 
-    it("handles DISCONNECT with responder", async () => {
-      const harness = new TestHarness()
-      harness.onConnect(() => connack().build())
-      let disconnectCalled = false
-      harness.onDisconnect(() => {
-        disconnectCalled = true
+    it("accepts options", () => {
+      const harness = createTestHarness({
+        maximumPacketSize: 1024
       })
 
-      await harness.wire.connect({ clientId: "test" })
-      await harness.wire.disconnect()
-
-      expect(disconnectCalled).toBe(true)
-    })
-  })
-
-  describe("waitFor methods", () => {
-    it("waitFor resolves when condition is true", async () => {
-      const harness = new TestHarness()
-      harness.onConnect(() => connack().build())
-
-      let flag = false
-      setTimeout(() => {
-        flag = true
-      }, 10)
-
-      await harness.waitFor(() => flag, { timeout: 500 })
-      expect(flag).toBe(true)
-    })
-
-    it("waitFor throws on timeout", async () => {
-      const harness = new TestHarness()
-
-      await expect(harness.waitFor(() => false, { timeout: 50, interval: 10 })).rejects.toThrow(
-        "Timeout waiting for condition after 50ms"
-      )
-    })
-
-    it("waitForSentPackets waits for specific count", async () => {
-      const harness = new TestHarness()
-      harness.onConnect(() => connack().build())
-
-      // Start connection which sends CONNECT
-      const connectPromise = harness.wire.connect({ clientId: "test" })
-
-      await harness.waitForSentPackets(1, 500)
-      expect(harness.sentPackets.length).toBeGreaterThanOrEqual(1)
-
-      await connectPromise
-    })
-
-    it("waitForSentPacketOfType waits for specific type", async () => {
-      const harness = new TestHarness()
-      harness.onConnect(() => connack().build())
-
-      const connectPromise = harness.wire.connect({ clientId: "test" })
-
-      await harness.waitForSentPacketOfType(PacketType.CONNECT, 500)
-      expect(harness.getSentPacketsOfType(PacketType.CONNECT)).toHaveLength(1)
-
-      await connectPromise
-    })
-  })
-
-  describe("lastSentPacketOfType", () => {
-    it("returns undefined when type not found", async () => {
-      const harness = new TestHarness()
-      harness.onConnect(() => connack().build())
-      await harness.wire.connect({ clientId: "test" })
-
-      const result = harness.lastSentPacketOfType(PacketType.PUBLISH)
-      expect(result).toBeUndefined()
-    })
-
-    it("returns last packet of type when multiple exist", async () => {
-      const harness = createFullTestHarness()
-      await harness.wire.connect({ clientId: "test" })
-
-      await harness.wire.publish("topic1", new Uint8Array([1]), { qos: 1 })
-      await harness.wire.publish("topic2", new Uint8Array([2]), { qos: 1 })
-
-      const last = harness.lastSentPacketOfType(PacketType.PUBLISH)
-      expect(last?.topic).toBe("topic2")
-    })
-  })
-
-  describe("protocol version", () => {
-    it("uses 5.0 by default", () => {
-      const harness = new TestHarness()
-      expect(harness.version).toBe("5.0")
-    })
-
-    it("respects protocolVersion option", () => {
-      const harness = new TestHarness({ protocolVersion: "3.1.1" })
-      expect(harness.version).toBe("3.1.1")
-    })
-  })
-
-  describe("responder with array return", () => {
-    it("handles responders that return arrays", async () => {
-      const harness = new TestHarness()
-      harness.onConnect(() => [connack().build()])
-
-      await harness.wire.connect({ clientId: "test" })
-      expect(harness.wire.isConnected).toBe(true)
-    })
-
-    it("handles responders that return null", () => {
-      const harness = new TestHarness()
-      // First call returns null (no response), second returns connack
-      let callCount = 0
-      harness.onConnect(() => {
-        callCount++
-        if (callCount === 1) {
-          return null
-        }
-        return connack().build()
-      })
-
-      // This will hang because null response won't complete connection
-      // So just verify it doesn't crash
-      expect(harness.wire.connectionState).toBe("disconnected")
-    })
-  })
-
-  describe("error hook", () => {
-    it("records errors via onError hook", async () => {
-      const harness = new TestHarness()
-      harness.onConnect(() => connack().build())
-      await harness.wire.connect({ clientId: "test" })
-
-      // Deliver malformed packet to trigger error
-      const malformed = new Uint8Array([0xff, 0xff, 0xff, 0xff])
-      try {
-        await harness.receiveBytes(malformed)
-      } catch {
-        // Expected to throw
-      }
-
-      // Error handling depends on internal implementation
       expect(harness.wire).toBeDefined()
-    })
-  })
-
-  describe("SUBSCRIBE auto-responder via harness.onSubscribe", () => {
-    it("handles custom SUBSCRIBE responder", async () => {
-      const harness = new TestHarness()
-      harness.onConnect(() => connack().build())
-      harness.onSubscribe((sub) => suback(sub.packetId).granted(0, 1, 2).build())
-
-      await harness.wire.connect({ clientId: "test" })
-      await harness.wire.subscribe([
-        { topicFilter: "a/#", options: { qos: 0 } },
-        { topicFilter: "b/#", options: { qos: 1 } },
-        { topicFilter: "c/#", options: { qos: 2 } }
-      ])
-
-      expect(harness.hookCalls.onSubscribe).toHaveLength(1)
-      expect(harness.hookCalls.onSubscribe[0].response.reasonCodes).toEqual([0, 1, 2])
-    })
-  })
-
-  describe("createFullTestHarness", () => {
-    it("auto-responds to QoS 2 publish with PUBREC", async () => {
-      const harness = createFullTestHarness()
-      await harness.wire.connect({ clientId: "test" })
-
-      await harness.wire.publish("topic", new Uint8Array([1, 2, 3]), { qos: 2 })
-
-      const publishes = harness.getSentPacketsOfType(PacketType.PUBLISH)
-      expect(publishes).toHaveLength(1)
-      expect(publishes[0].qos).toBe(2)
-    })
-
-    it("auto-responds to UNSUBSCRIBE", async () => {
-      const harness = createFullTestHarness()
-      await harness.wire.connect({ clientId: "test" })
-
-      await harness.wire.unsubscribe(["foo/#", "bar/#"])
-
-      expect(harness.hookCalls.onUnsubscribe).toHaveLength(1)
-      expect(harness.hookCalls.onUnsubscribe[0].response.reasonCodes).toEqual([0, 0])
-    })
-
-    it("handles QoS 0 publish without response", async () => {
-      const harness = createFullTestHarness()
-      await harness.wire.connect({ clientId: "test" })
-
-      await harness.wire.publish("topic", new Uint8Array([1]), { qos: 0 })
-
-      const publishes = harness.getSentPacketsOfType(PacketType.PUBLISH)
-      expect(publishes).toHaveLength(1)
-      expect(publishes[0].qos).toBe(0)
-    })
-  })
-
-  describe("PINGREQ auto-response", () => {
-    it("handles autoPingresp option", () => {
-      const harnessWithPing = new TestHarness({ autoPingresp: true })
-      const harnessWithoutPing = new TestHarness({ autoPingresp: false })
-
-      // Both harnesses should be created successfully with different options
-      expect(harnessWithPing.wire).toBeDefined()
-      expect(harnessWithoutPing.wire).toBeDefined()
-    })
-  })
-
-  describe("responder returning null or undefined", () => {
-    it("normalizes undefined to empty array", () => {
-      const harness = new TestHarness()
-      harness.onConnect(() => undefined)
-
-      // Wire won't connect but harness should not crash
-      expect(harness.wire.connectionState).toBe("disconnected")
     })
   })
 })

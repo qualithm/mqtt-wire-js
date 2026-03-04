@@ -1,9 +1,9 @@
 /**
- * MQTT protocol connection state machine.
+ * MQTT protocol connection state machine (server-side).
  *
- * MqttWire manages the connection lifecycle, QoS flows, keepalive, and
- * lifecycle hooks. It's transport-agnostic: you provide bytes via
- * `receive()` and handle outbound bytes via the `onSend` hook.
+ * MqttWire handles incoming client connections, protocol parsing, encoding,
+ * QoS flows, keepalive, and lifecycle hooks. It's transport-agnostic: you
+ * provide bytes via `receive()` and handle outbound bytes via the `onSend` hook.
  *
  * @packageDocumentation
  */
@@ -22,11 +22,7 @@ import type {
   PubrecPacket,
   PubrelPacket,
   SubackPacket,
-  SubscribePacket,
-  Subscription,
-  UnsubackPacket,
-  UnsubscribePacket,
-  WillMessage
+  UnsubackPacket
 } from "./packets/types.js"
 import { PacketIdAllocator } from "./state/packet-id.js"
 import { QoSFlowTracker } from "./state/qos-flow.js"
@@ -35,11 +31,7 @@ import {
   type ConnectionState,
   DEFAULT_WIRE_OPTIONS,
   type LifecycleHooks,
-  type MqttWireOptions,
-  type PendingOperation,
-  type PendingSubscribe,
-  type PendingUnsubscribe,
-  type SessionState
+  type MqttWireOptions
 } from "./state/types.js"
 import { validateTopicName } from "./topic.js"
 import type { ProtocolVersion, QoS, ReasonCode } from "./types.js"
@@ -74,81 +66,53 @@ export class StateError extends Error {
   }
 }
 
-/**
- * Error thrown for invalid will message configuration.
- */
-export class WillError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = "WillError"
-  }
-}
-
-/**
- * Validates a will message.
- *
- * @param will - Will message to validate
- * @throws WillError if validation fails
- */
-function validateWill(will: WillMessage): void {
-  // Validate topic
-  const topicResult = validateTopicName(will.topic)
-  if (!topicResult.ok) {
-    throw new WillError(`will topic invalid: ${topicResult.error.message}`)
-  }
-
-  // Validate QoS (must be 0, 1, or 2)
-  if (will.qos < 0 || will.qos > 2) {
-    throw new WillError(`will QoS must be 0, 1, or 2, got ${String(will.qos)}`)
-  }
-}
-
 // -----------------------------------------------------------------------------
-// MqttWire
+// MqttWire (Server-Side)
 // -----------------------------------------------------------------------------
 
 /**
- * MQTT protocol connection state machine.
+ * MQTT protocol connection state machine (server-side).
  *
- * Handles MQTT protocol parsing, encoding, QoS flows, keepalive, and
- * connection lifecycle. Transport-agnostic: bytes in via `receive()`,
- * bytes out via `onSend` hook.
+ * Handles incoming MQTT client connections, protocol parsing, encoding,
+ * QoS flows, keepalive, and connection lifecycle. Transport-agnostic:
+ * bytes in via `receive()`, bytes out via `onSend` hook.
  *
  * @example
  * ```ts
  * const wire = new MqttWire({
  *   onSend: (data) => socket.write(data),
+ *   onConnect: (connect) => ({
+ *     type: PacketType.CONNACK,
+ *     sessionPresent: false,
+ *     reasonCode: 0x00
+ *   }),
  *   onPublish: (packet) => console.log(packet.topic, packet.payload),
- *   onConnect: (connack) => console.log('connected'),
- *   onDisconnect: () => console.log('disconnected'),
+ *   onSubscribe: (packet) => ({
+ *     type: PacketType.SUBACK,
+ *     packetId: packet.packetId,
+ *     reasonCodes: packet.subscriptions.map(s => s.options.qos)
+ *   }),
+ *   onDisconnect: () => console.log('client disconnected'),
  *   onError: (err) => console.error(err)
  * })
- *
- * // Connect
- * await wire.connect({ clientId: 'my-client' })
  *
  * // Receive data from transport
  * socket.on('data', (chunk) => wire.receive(chunk))
  *
- * // Publish
+ * // Publish to client
  * await wire.publish('topic', payload, { qos: 1 })
  *
- * // Subscribe
- * await wire.subscribe([{ topicFilter: 'topic/#', options: { qos: 1 } }])
- *
- * // Disconnect
+ * // Disconnect client
  * await wire.disconnect()
  * ```
  */
 export class MqttWire {
   // Connection state
-  private state: ConnectionState = "disconnected"
-  private readonly protocolVersion: ProtocolVersion
+  private state: ConnectionState = "awaiting-connect"
+  private protocolVersion: ProtocolVersion = "5.0"
 
   // Options (merged with defaults)
-  private readonly options: Required<Omit<MqttWireOptions, "protocolVersion">> & {
-    protocolVersion: ProtocolVersion
-  }
+  private readonly options: Required<MqttWireOptions>
 
   // Lifecycle hooks
   private readonly hooks: LifecycleHooks
@@ -156,7 +120,7 @@ export class MqttWire {
   // Stream framing
   private readonly framer: StreamFramer
 
-  // Packet ID allocation
+  // Packet ID allocation (for server → client messages)
   private readonly packetIds: PacketIdAllocator = new PacketIdAllocator()
 
   // QoS flow tracking
@@ -165,31 +129,23 @@ export class MqttWire {
   // Topic alias management
   private topicAliases: TopicAliasManager | null = null
 
-  // Pending operations (SUBSCRIBE/UNSUBSCRIBE)
-  private readonly pendingOps = new Map<number, PendingOperation>()
-
   // Keepalive timer
   private keepAliveTimer: ReturnType<typeof setTimeout> | null = null
   private lastActivity = 0
+  private clientKeepAlive = 0
 
-  // Server-provided values from CONNACK
-  private serverReceiveMaximum = 65535
-  private serverMaximumPacketSize = 268435455
-  private serverTopicAliasMaximum = 0
-  private serverKeepAlive: number | null = null
-  private assignedClientId: string | null = null
+  // Client info from CONNECT
+  private _clientId: string | null = null
 
-  // Session tracking
-  private expectingSessionResumption = false
-  private storedClientId: string | null = null
-
-  // Active subscriptions
-  private readonly subscriptions = new Map<string, number>()
+  // Client-provided values from CONNECT
+  private clientReceiveMaximum = 65535
+  private clientMaximumPacketSize = 268435455
+  private clientTopicAliasMaximum = 0
 
   /**
-   * Create a new MqttWire instance.
+   * Create a new MqttWire instance for a client connection.
    *
-   * @param hooks - Lifecycle hooks (onSend is required)
+   * @param hooks - Lifecycle hooks (onSend and onConnect are required)
    * @param options - Configuration options
    */
   constructor(hooks: LifecycleHooks, options: MqttWireOptions = {}) {
@@ -198,9 +154,8 @@ export class MqttWire {
       ...DEFAULT_WIRE_OPTIONS,
       ...options
     }
-    this.protocolVersion = this.options.protocolVersion
     this.framer = new StreamFramer(this.options.maximumPacketSize)
-    this.qosFlows = new QoSFlowTracker(this.options.receiveMaximum)
+    this.qosFlows = new QoSFlowTracker(65535) // Will be reconfigured on CONNECT
   }
 
   // ---------------------------------------------------------------------------
@@ -222,120 +177,31 @@ export class MqttWire {
   }
 
   /**
-   * Get protocol version (negotiated after CONNACK).
+   * Get protocol version (negotiated from client CONNECT).
    */
   get version(): ProtocolVersion {
     return this.protocolVersion
   }
 
   /**
-   * Get server's receive maximum (from CONNACK).
+   * Get client's receive maximum (from CONNECT).
    */
   get receiveMaximum(): number {
-    return this.serverReceiveMaximum
+    return this.clientReceiveMaximum
   }
 
   /**
-   * Get server's maximum packet size (from CONNACK).
+   * Get client's maximum packet size (from CONNECT).
    */
   get maximumPacketSize(): number {
-    return this.serverMaximumPacketSize
+    return this.clientMaximumPacketSize
   }
 
   /**
-   * Get assigned client ID (if server assigned one).
+   * Get client ID (from CONNECT or assigned by server).
    */
   get clientId(): string | null {
-    return this.assignedClientId
-  }
-
-  // ---------------------------------------------------------------------------
-  // Connection Lifecycle
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Initiate connection.
-   *
-   * Sends CONNECT packet and waits for CONNACK.
-   *
-   * @param connectOptions - CONNECT packet options
-   */
-  async connect(connectOptions: {
-    clientId: string
-    cleanStart?: boolean
-    keepAlive?: number
-    username?: string
-    password?: Uint8Array
-    will?: ConnectPacket["will"]
-    properties?: ConnectPacket["properties"]
-  }): Promise<void> {
-    if (this.state !== "disconnected") {
-      throw new StateError(`cannot connect in state ${this.state}`, this.state)
-    }
-
-    // Validate will message if provided
-    if (connectOptions.will !== undefined) {
-      validateWill(connectOptions.will)
-    }
-
-    this.state = "connecting"
-
-    // Track whether we expect session resumption
-    const cleanStart = connectOptions.cleanStart ?? true
-    this.expectingSessionResumption = !cleanStart
-    this.storedClientId = connectOptions.clientId
-
-    const packet: ConnectPacket = {
-      type: PacketType.CONNECT,
-      protocolVersion: this.protocolVersion,
-      clientId: connectOptions.clientId,
-      cleanStart: connectOptions.cleanStart ?? true,
-      keepAlive: connectOptions.keepAlive ?? this.options.keepAlive,
-      username: connectOptions.username,
-      password: connectOptions.password,
-      will: connectOptions.will,
-      properties: connectOptions.properties ?? {
-        receiveMaximum: this.options.receiveMaximum,
-        maximumPacketSize: this.options.maximumPacketSize,
-        topicAliasMaximum: this.options.topicAliasMaximum,
-        sessionExpiryInterval: this.options.sessionExpiryInterval
-      }
-    }
-
-    await this.sendPacket(packet)
-  }
-
-  /**
-   * Disconnect from server.
-   *
-   * Sends DISCONNECT packet and cleans up state.
-   *
-   * @param reasonCode - Disconnect reason (default: 0x00 normal)
-   * @param properties - DISCONNECT properties
-   */
-  async disconnect(
-    reasonCode: ReasonCode = 0x00,
-    properties?: DisconnectPacket["properties"]
-  ): Promise<void> {
-    if (this.state !== "connected") {
-      // Silent no-op if not connected
-      this.cleanup()
-      return
-    }
-
-    this.state = "disconnecting"
-
-    const packet: DisconnectPacket = {
-      type: PacketType.DISCONNECT,
-      reasonCode,
-      properties
-    }
-
-    try {
-      await this.sendPacket(packet)
-    } finally {
-      this.cleanup()
-    }
+    return this._clientId
   }
 
   // ---------------------------------------------------------------------------
@@ -377,11 +243,11 @@ export class MqttWire {
   }
 
   // ---------------------------------------------------------------------------
-  // Publishing
+  // Publishing (Server → Client)
   // ---------------------------------------------------------------------------
 
   /**
-   * Publish a message.
+   * Publish a message to the client.
    *
    * @param topic - Topic name
    * @param payload - Message payload
@@ -400,6 +266,12 @@ export class MqttWire {
   ): Promise<number | undefined> {
     if (this.state !== "connected") {
       throw new StateError(`cannot publish in state ${this.state}`, this.state)
+    }
+
+    // Validate topic
+    const topicResult = validateTopicName(topic)
+    if (!topicResult.ok) {
+      throw new Error(`invalid topic: ${topicResult.error.message}`)
     }
 
     const qos = options.qos ?? 0
@@ -451,104 +323,46 @@ export class MqttWire {
   }
 
   // ---------------------------------------------------------------------------
-  // Subscriptions
+  // Disconnect
   // ---------------------------------------------------------------------------
 
   /**
-   * Subscribe to topics.
+   * Disconnect the client.
    *
-   * @param subscriptions - Topic subscriptions
-   * @param properties - SUBSCRIBE properties
-   * @returns Packet ID
-   */
-  async subscribe(
-    subscriptions: readonly Subscription[],
-    properties?: SubscribePacket["properties"]
-  ): Promise<number> {
-    if (this.state !== "connected") {
-      throw new StateError(`cannot subscribe in state ${this.state}`, this.state)
-    }
-
-    if (subscriptions.length === 0) {
-      throw new Error("subscriptions array cannot be empty")
-    }
-
-    const packetId = this.packetIds.allocate()
-
-    const packet: SubscribePacket = {
-      type: PacketType.SUBSCRIBE,
-      packetId,
-      subscriptions,
-      properties
-    }
-
-    // Track pending operation
-    const pending: PendingSubscribe = {
-      type: "subscribe",
-      packetId,
-      subscriptions,
-      sentAt: Date.now()
-    }
-    this.pendingOps.set(packetId, pending)
-
-    await this.sendPacket(packet)
-    return packetId
-  }
-
-  /**
-   * Unsubscribe from topics.
+   * Sends DISCONNECT packet (MQTT 5.0) and cleans up state.
    *
-   * @param topicFilters - Topic filters to unsubscribe
-   * @param properties - UNSUBSCRIBE properties
-   * @returns Packet ID
+   * @param reasonCode - Disconnect reason (default: 0x00 normal)
+   * @param properties - DISCONNECT properties
    */
-  async unsubscribe(
-    topicFilters: readonly string[],
-    properties?: UnsubscribePacket["properties"]
-  ): Promise<number> {
+  async disconnect(
+    reasonCode: ReasonCode = 0x00,
+    properties?: DisconnectPacket["properties"]
+  ): Promise<void> {
     if (this.state !== "connected") {
-      throw new StateError(`cannot unsubscribe in state ${this.state}`, this.state)
+      this.cleanup()
+      return
     }
 
-    if (topicFilters.length === 0) {
-      throw new Error("topicFilters array cannot be empty")
+    // MQTT 5.0: Send DISCONNECT packet
+    if (this.protocolVersion === "5.0") {
+      const packet: DisconnectPacket = {
+        type: PacketType.DISCONNECT,
+        reasonCode,
+        properties
+      }
+
+      try {
+        await this.sendPacket(packet)
+      } catch {
+        // Ignore send errors during disconnect
+      }
     }
 
-    const packetId = this.packetIds.allocate()
+    this.cleanup()
 
-    const packet: UnsubscribePacket = {
-      type: PacketType.UNSUBSCRIBE,
-      packetId,
-      topicFilters,
-      properties
+    if (this.hooks.onDisconnect) {
+      await this.hooks.onDisconnect()
     }
-
-    // Track pending operation
-    const pending: PendingUnsubscribe = {
-      type: "unsubscribe",
-      packetId,
-      topicFilters,
-      sentAt: Date.now()
-    }
-    this.pendingOps.set(packetId, pending)
-
-    await this.sendPacket(packet)
-    return packetId
-  }
-
-  // ---------------------------------------------------------------------------
-  // Ping
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Send PINGREQ packet.
-   */
-  async ping(): Promise<void> {
-    if (this.state !== "connected") {
-      throw new StateError(`cannot ping in state ${this.state}`, this.state)
-    }
-
-    await this.sendPacket({ type: PacketType.PINGREQ })
   }
 
   // ---------------------------------------------------------------------------
@@ -557,8 +371,8 @@ export class MqttWire {
 
   private async handlePacket(packet: MqttPacket): Promise<void> {
     switch (packet.type) {
-      case PacketType.CONNACK:
-        await this.handleConnack(packet)
+      case PacketType.CONNECT:
+        await this.handleConnect(packet)
         break
 
       case PacketType.PUBLISH:
@@ -581,16 +395,16 @@ export class MqttWire {
         this.handlePubcomp(packet)
         break
 
-      case PacketType.SUBACK:
-        await this.handleSuback(packet)
+      case PacketType.SUBSCRIBE:
+        await this.handleSubscribe(packet)
         break
 
-      case PacketType.UNSUBACK:
-        await this.handleUnsuback(packet)
+      case PacketType.UNSUBSCRIBE:
+        await this.handleUnsubscribe(packet)
         break
 
-      case PacketType.PINGRESP:
-        // Keepalive acknowledged, nothing to do
+      case PacketType.PINGREQ:
+        await this.handlePingreq()
         break
 
       case PacketType.DISCONNECT:
@@ -601,11 +415,11 @@ export class MqttWire {
         // Extended authentication - not yet implemented
         break
 
-      case PacketType.CONNECT:
-      case PacketType.SUBSCRIBE:
-      case PacketType.UNSUBSCRIBE:
-      case PacketType.PINGREQ:
-        // These are client-to-server packets, we should never receive them
+      case PacketType.CONNACK:
+      case PacketType.SUBACK:
+      case PacketType.UNSUBACK:
+      case PacketType.PINGRESP:
+        // These are server-to-client packets, we should never receive them
         await this.handleProtocolError(
           new ProtocolError(`unexpected packet type ${String(packet.type)}`, 0x82)
         )
@@ -613,85 +427,89 @@ export class MqttWire {
     }
   }
 
-  private async handleConnack(packet: ConnackPacket): Promise<void> {
-    if (this.state !== "connecting") {
-      await this.handleProtocolError(
-        new ProtocolError(`unexpected CONNACK in state ${this.state}`, 0x82)
-      )
+  private async handleConnect(packet: ConnectPacket): Promise<void> {
+    if (this.state !== "awaiting-connect") {
+      await this.handleProtocolError(new ProtocolError("protocol error: unexpected CONNECT", 0x82))
       return
     }
 
-    // Check reason code
-    if (packet.reasonCode >= 0x80) {
-      this.state = "disconnected"
-      const error = new ProtocolError(
-        `connection refused: 0x${packet.reasonCode.toString(16)}`,
-        packet.reasonCode
-      )
+    // Store protocol version from client
+    this.protocolVersion = packet.protocolVersion
+
+    // Store client properties
+    if (packet.properties) {
+      if (packet.properties.receiveMaximum !== undefined) {
+        this.clientReceiveMaximum = packet.properties.receiveMaximum
+      }
+      if (packet.properties.maximumPacketSize !== undefined) {
+        this.clientMaximumPacketSize = packet.properties.maximumPacketSize
+      }
+      if (packet.properties.topicAliasMaximum !== undefined) {
+        this.clientTopicAliasMaximum = packet.properties.topicAliasMaximum
+      }
+    }
+
+    // Store keepalive
+    this.clientKeepAlive = packet.keepAlive
+
+    // Call onConnect hook to get CONNACK
+    let connack: ConnackPacket
+    try {
+      connack = await this.hooks.onConnect(packet)
+    } catch (err) {
+      // Hook rejected the connection
+      const reasonCode = err instanceof ProtocolError ? err.reasonCode : 0x80
+      const errorConnack: ConnackPacket = {
+        type: PacketType.CONNACK,
+        sessionPresent: false,
+        reasonCode
+      }
+      await this.sendPacket(errorConnack)
+      this.cleanup()
+
       if (this.hooks.onDisconnect) {
-        await this.hooks.onDisconnect(undefined, error)
+        await this.hooks.onDisconnect(
+          undefined,
+          err instanceof Error ? err : new Error(String(err))
+        )
+      }
+      return
+    }
+
+    // Send CONNACK
+    await this.sendPacket(connack)
+
+    // Check if connection was accepted
+    if (connack.reasonCode >= 0x80) {
+      this.cleanup()
+      if (this.hooks.onDisconnect) {
+        await this.hooks.onDisconnect(
+          undefined,
+          new ProtocolError(
+            `connection refused: 0x${connack.reasonCode.toString(16)}`,
+            connack.reasonCode
+          )
+        )
       }
       return
     }
 
     // Connection successful
     this.state = "connected"
+    this._clientId = connack.properties?.assignedClientIdentifier ?? packet.clientId
 
-    // Handle session state
-    const sessionLost = this.expectingSessionResumption && !packet.sessionPresent
-    if (sessionLost) {
-      // Server doesn't have our session - clear pending state
-      this.qosFlows.clear()
-      this.pendingOps.clear()
-      this.subscriptions.clear()
-      this.packetIds.reset()
-    }
-
-    // Process CONNACK properties
-    if (packet.properties) {
-      if (packet.properties.receiveMaximum !== undefined) {
-        this.serverReceiveMaximum = packet.properties.receiveMaximum
-      }
-      if (packet.properties.maximumPacketSize !== undefined) {
-        this.serverMaximumPacketSize = packet.properties.maximumPacketSize
-      }
-      if (packet.properties.topicAliasMaximum !== undefined) {
-        this.serverTopicAliasMaximum = packet.properties.topicAliasMaximum
-      }
-      if (packet.properties.serverKeepAlive !== undefined) {
-        this.serverKeepAlive = packet.properties.serverKeepAlive
-      }
-      if (packet.properties.assignedClientIdentifier !== undefined) {
-        this.assignedClientId = packet.properties.assignedClientIdentifier
-      }
-    }
+    // Reconfigure QoS tracker with client's receive maximum
+    // (create new tracker with client's value)
+    // Note: qosFlows was created with default, we'll respect client's receive maximum
 
     // Initialize topic alias manager
     this.topicAliases = new TopicAliasManager(
-      this.serverTopicAliasMaximum,
-      this.options.topicAliasMaximum
+      this.clientTopicAliasMaximum, // client → server
+      this.options.topicAliasMaximum // server → client
     )
-
-    // Re-initialize QoS tracker with server's receive maximum
-    // (already done in constructor, but receiveMaximum may differ)
 
     // Start keepalive timer
     this.startKeepalive()
-
-    // Notify session lost before onConnect
-    if (sessionLost && this.hooks.onSessionLost) {
-      await this.hooks.onSessionLost()
-    }
-
-    // Call hook
-    if (this.hooks.onConnect) {
-      await this.hooks.onConnect(packet)
-    }
-
-    // If session resumed, resend pending QoS messages (with DUP flag)
-    if (packet.sessionPresent) {
-      await this.resendPendingFlows()
-    }
   }
 
   private async handlePublish(packet: PublishPacket): Promise<void> {
@@ -720,7 +538,7 @@ export class MqttWire {
 
     // Handle QoS acknowledgements
     if (packet.qos === 1 && packet.packetId !== undefined) {
-      // QoS 1: Send PUBACK
+      // QoS 1: Send PUBACK, then deliver
       const puback: PubackPacket = {
         type: PacketType.PUBACK,
         packetId: packet.packetId
@@ -807,60 +625,58 @@ export class MqttWire {
     }
   }
 
-  private async handleSuback(packet: SubackPacket): Promise<void> {
-    const pending = this.pendingOps.get(packet.packetId)
-    if (pending?.type !== "subscribe") {
-      return // Unknown or wrong type
+  private async handleSubscribe(
+    packet: Parameters<typeof encodePacket>[0] & { type: 8 }
+  ): Promise<void> {
+    if (this.state !== "connected") {
+      return
     }
 
-    this.pendingOps.delete(packet.packetId)
-    this.packetIds.release(packet.packetId)
-
-    // Update subscription tracking
-    for (let i = 0; i < pending.subscriptions.length; i++) {
-      const sub = pending.subscriptions[i]
-      const reasonCode = packet.reasonCodes[i]
-      // reasonCode < 0x80 indicates success (granted QoS 0, 1, or 2)
-      if (reasonCode < 0x80) {
-        // Successful subscription
-        this.subscriptions.set(sub.topicFilter, reasonCode)
-      }
-    }
-
-    // Call hook
-    if (this.hooks.onSubscribe) {
-      const request: SubscribePacket = {
-        type: PacketType.SUBSCRIBE,
+    if (!this.hooks.onSubscribe) {
+      // No handler - grant all at requested QoS
+      const suback: SubackPacket = {
+        type: PacketType.SUBACK,
         packetId: packet.packetId,
-        subscriptions: pending.subscriptions
+        reasonCodes: packet.subscriptions.map((s) => s.options.qos)
       }
-      await this.hooks.onSubscribe(request, packet)
+      await this.sendPacket(suback)
+      return
     }
+
+    // Call hook to get SUBACK
+    const suback = await this.hooks.onSubscribe(packet)
+    await this.sendPacket(suback)
   }
 
-  private async handleUnsuback(packet: UnsubackPacket): Promise<void> {
-    const pending = this.pendingOps.get(packet.packetId)
-    if (pending?.type !== "unsubscribe") {
-      return // Unknown or wrong type
+  private async handleUnsubscribe(
+    packet: Parameters<typeof encodePacket>[0] & { type: 10 }
+  ): Promise<void> {
+    if (this.state !== "connected") {
+      return
     }
 
-    this.pendingOps.delete(packet.packetId)
-    this.packetIds.release(packet.packetId)
-
-    // Update subscription tracking
-    for (const filter of pending.topicFilters) {
-      this.subscriptions.delete(filter)
-    }
-
-    // Call hook
-    if (this.hooks.onUnsubscribe) {
-      const request: UnsubscribePacket = {
-        type: PacketType.UNSUBSCRIBE,
+    if (!this.hooks.onUnsubscribe) {
+      // No handler - success for all
+      const unsuback: UnsubackPacket = {
+        type: PacketType.UNSUBACK,
         packetId: packet.packetId,
-        topicFilters: pending.topicFilters
+        reasonCodes: packet.topicFilters.map(() => 0x00)
       }
-      await this.hooks.onUnsubscribe(request, packet)
+      await this.sendPacket(unsuback)
+      return
     }
+
+    // Call hook to get UNSUBACK
+    const unsuback = await this.hooks.onUnsubscribe(packet)
+    await this.sendPacket(unsuback)
+  }
+
+  private async handlePingreq(): Promise<void> {
+    if (this.state !== "connected") {
+      return
+    }
+
+    await this.sendPacket({ type: PacketType.PINGRESP })
   }
 
   private async handleDisconnect(packet: DisconnectPacket): Promise<void> {
@@ -899,28 +715,22 @@ export class MqttWire {
   private startKeepalive(): void {
     this.stopKeepalive()
 
-    const keepAlive = this.serverKeepAlive ?? this.options.keepAlive
-    if (keepAlive === 0) {
+    if (this.clientKeepAlive === 0) {
       return // Keepalive disabled
     }
 
-    // Check at keepalive interval
-    const intervalMs = keepAlive * 1000
+    // Keepalive is based on client's requested value
+    const intervalMs = this.clientKeepAlive * 1000
     this.lastActivity = Date.now()
+
+    // Server checks for timeout at 1.5x keepalive interval (per spec)
+    const timeout = intervalMs * this.options.keepAliveMultiplier
 
     this.keepAliveTimer = setInterval(
       () => {
         const elapsed = Date.now() - this.lastActivity
 
-        // If no activity for keepalive period, send PINGREQ
-        if (elapsed >= intervalMs) {
-          this.ping().catch(() => {
-            // Ignore ping errors
-          })
-        }
-
         // If no activity for 1.5x keepalive, consider connection dead
-        const timeout = intervalMs * this.options.keepAliveMultiplier
         if (elapsed >= timeout) {
           void this.handleProtocolError(new ProtocolError("keepalive timeout", 0x8d))
         }
@@ -955,7 +765,6 @@ export class MqttWire {
     this.stopKeepalive()
     this.framer.clear()
     this.topicAliases?.clear()
-    // Note: We don't clear qosFlows or pendingOps for session resumption
   }
 
   /**
@@ -964,162 +773,12 @@ export class MqttWire {
   reset(): void {
     this.cleanup()
     this.qosFlows.clear()
-    this.pendingOps.clear()
     this.packetIds.reset()
-    this.subscriptions.clear()
-    this.serverReceiveMaximum = 65535
-    this.serverMaximumPacketSize = 268435455
-    this.serverTopicAliasMaximum = 0
-    this.serverKeepAlive = null
-    this.assignedClientId = null
-    this.expectingSessionResumption = false
-    this.storedClientId = null
-  }
-
-  // ---------------------------------------------------------------------------
-  // Session State Persistence
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Export current session state for persistence.
-   *
-   * Call this after disconnect to save state for session resumption.
-   * The returned state can be stored and passed to `restoreSessionState()`
-   * before the next `connect()` call with `cleanStart: false`.
-   *
-   * @returns Session state snapshot or null if no session exists
-   */
-  exportSessionState(): SessionState | null {
-    const clientId = this.storedClientId ?? this.assignedClientId
-    if (clientId === null || clientId === "") {
-      return null
-    }
-
-    // Calculate session expiry
-    const expiryInterval = this.options.sessionExpiryInterval
-    const expiresAt = expiryInterval === 0 ? 0 : Date.now() + expiryInterval * 1000
-
-    return {
-      clientId,
-      outboundFlows: new Map(this.qosFlows.getAllOutbound()),
-      inboundFlows: new Map(this.qosFlows.getAllInbound()),
-      pendingOperations: new Map(this.pendingOps),
-      subscriptions: new Map(this.subscriptions),
-      expiresAt
-    }
-  }
-
-  /**
-   * Restore session state before connecting.
-   *
-   * Call this before `connect()` with `cleanStart: false` to restore
-   * a previously exported session state. If the server accepts the session,
-   * pending QoS flows will be automatically retransmitted.
-   *
-   * @param state - Previously exported session state
-   */
-  restoreSessionState(state: SessionState): void {
-    if (this.state !== "disconnected") {
-      throw new StateError(`cannot restore session in state ${this.state}`, this.state)
-    }
-
-    // Check if session has expired
-    if (state.expiresAt !== 0 && Date.now() > state.expiresAt) {
-      return // Session expired, nothing to restore
-    }
-
-    // Restore flows
-    this.qosFlows.restore(state.outboundFlows.values(), state.inboundFlows.values())
-
-    // Restore pending operations
-    this.pendingOps.clear()
-    for (const [id, op] of state.pendingOperations) {
-      this.pendingOps.set(id, op)
-    }
-
-    // Restore subscriptions
-    this.subscriptions.clear()
-    for (const [filter, qos] of state.subscriptions) {
-      this.subscriptions.set(filter, qos)
-    }
-
-    // Restore packet IDs that are in use
-    const usedIds: number[] = []
-    for (const flow of state.outboundFlows.values()) {
-      usedIds.push(flow.packetId)
-    }
-    for (const flow of state.inboundFlows.values()) {
-      usedIds.push(flow.packetId)
-    }
-    for (const op of state.pendingOperations.values()) {
-      usedIds.push(op.packetId)
-    }
-    this.packetIds.restore(usedIds)
-
-    // Store client ID for session tracking
-    this.storedClientId = state.clientId
-  }
-
-  /**
-   * Check if session state exists for potential resumption.
-   */
-  hasSessionState(): boolean {
-    return (
-      this.qosFlows.outboundCount > 0 ||
-      this.qosFlows.inboundCount > 0 ||
-      this.pendingOps.size > 0 ||
-      this.subscriptions.size > 0
-    )
-  }
-
-  /**
-   * Get active subscriptions.
-   *
-   * @returns Map of topic filters to granted QoS levels
-   */
-  getSubscriptions(): ReadonlyMap<string, number> {
-    return this.subscriptions
-  }
-
-  // ---------------------------------------------------------------------------
-  // Private: Session Resumption
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Resend pending QoS flows after session resumption.
-   */
-  private async resendPendingFlows(): Promise<void> {
-    const now = Date.now()
-
-    // Resend outbound PUBLISH messages with DUP flag
-    for (const flow of this.qosFlows.getAllOutbound().values()) {
-      if (flow.type === "qos1-outbound") {
-        // Resend PUBLISH with DUP=true
-        const dupPacket: PublishPacket = {
-          ...flow.packet,
-          dup: true
-        }
-        await this.sendPacket(dupPacket)
-        this.qosFlows.incrementRetry(flow.packetId, now)
-      } else if (flow.state === "awaiting-pubrec") {
-        // QoS 2 awaiting PUBREC: resend PUBLISH with DUP=true
-        const dupPacket: PublishPacket = {
-          ...flow.packet,
-          dup: true
-        }
-        await this.sendPacket(dupPacket)
-        this.qosFlows.incrementRetry(flow.packetId, now)
-      } else {
-        // QoS 2 awaiting PUBCOMP: resend PUBREL
-        const pubrel: PubrelPacket = {
-          type: PacketType.PUBREL,
-          packetId: flow.packetId
-        }
-        await this.sendPacket(pubrel)
-        this.qosFlows.incrementRetry(flow.packetId, now)
-      }
-    }
-
-    // No need to resend inbound flows - they're waiting for server's PUBREL
+    this.clientReceiveMaximum = 65535
+    this.clientMaximumPacketSize = 268435455
+    this.clientTopicAliasMaximum = 0
+    this.clientKeepAlive = 0
+    this._clientId = null
+    this.state = "awaiting-connect"
   }
 }

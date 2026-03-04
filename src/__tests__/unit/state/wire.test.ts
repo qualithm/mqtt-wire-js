@@ -4,25 +4,25 @@ import { PacketType } from "../../../constants.js"
 import { encodePacket } from "../../../packets/encode.js"
 import type {
   ConnackPacket,
+  ConnectPacket,
   DisconnectPacket,
-  PingrespPacket,
-  PubackPacket,
-  PubcompPacket,
   PublishPacket,
-  PubrecPacket,
   PubrelPacket,
   SubackPacket,
-  UnsubackPacket
+  SubscribePacket,
+  UnsubackPacket,
+  UnsubscribePacket
 } from "../../../packets/types.js"
 import type { LifecycleHooks } from "../../../state/types.js"
 import { MqttWire, ProtocolError, StateError } from "../../../wire.js"
 
 /**
- * Helper to create MqttWire with mock onSend.
+ * Helper to create MqttWire with mock hooks.
  */
 function createWire(hooks: Partial<LifecycleHooks> = {}): {
   wire: MqttWire
   onSend: ReturnType<typeof vi.fn>
+  onConnect: ReturnType<typeof vi.fn>
   sentPackets: Uint8Array[]
 } {
   const sentPackets: Uint8Array[] = []
@@ -30,8 +30,15 @@ function createWire(hooks: Partial<LifecycleHooks> = {}): {
     sentPackets.push(data)
     return Promise.resolve()
   })
-  const wire = new MqttWire({ onSend, ...hooks })
-  return { wire, onSend, sentPackets }
+  const onConnect = vi.fn(
+    (_packet: ConnectPacket): ConnackPacket => ({
+      type: PacketType.CONNACK,
+      sessionPresent: false,
+      reasonCode: 0x00
+    })
+  )
+  const wire = new MqttWire({ onSend, onConnect, ...hooks })
+  return { wire, onSend, onConnect, sentPackets }
 }
 
 /**
@@ -39,411 +46,151 @@ function createWire(hooks: Partial<LifecycleHooks> = {}): {
  */
 async function receivePacket(
   wire: MqttWire,
-  packet: Parameters<typeof encodePacket>[0]
+  packet: Parameters<typeof encodePacket>[0],
+  version: "3.1.1" | "5.0" = "5.0"
 ): Promise<void> {
-  const data = encodePacket(packet, wire.version)
+  const data = encodePacket(packet, version)
   await wire.receive(data)
 }
 
-describe("MqttWire", () => {
+/**
+ * Simulate client connection by sending CONNECT and expecting CONNACK.
+ */
+async function connectClient(wire: MqttWire, options: Partial<ConnectPacket> = {}): Promise<void> {
+  const connect: ConnectPacket = {
+    type: PacketType.CONNECT,
+    protocolVersion: "5.0",
+    clientId: "test-client",
+    cleanStart: true,
+    keepAlive: 60,
+    ...options
+  }
+  await receivePacket(wire, connect, connect.protocolVersion)
+}
+
+describe("MqttWire (Server-Side)", () => {
   describe("constructor", () => {
-    it("initialises with default options", () => {
+    it("initialises with awaiting-connect state", () => {
       const { wire } = createWire()
-      expect(wire.connectionState).toBe("disconnected")
+      expect(wire.connectionState).toBe("awaiting-connect")
       expect(wire.isConnected).toBe(false)
       expect(wire.version).toBe("5.0")
     })
-
-    it("respects custom protocol version", () => {
-      const wire = new MqttWire({ onSend: vi.fn() }, { protocolVersion: "3.1.1" })
-      expect(wire.version).toBe("3.1.1")
-    })
   })
 
-  describe("connect", () => {
-    it("sends CONNECT packet and transitions to connecting", async () => {
-      const { wire, sentPackets } = createWire()
+  describe("CONNECT handling", () => {
+    it("transitions to connected on valid CONNECT", async () => {
+      const { wire, onConnect, sentPackets } = createWire()
 
-      await wire.connect({ clientId: "test-client" })
-
-      expect(wire.connectionState).toBe("connecting")
-      expect(sentPackets).toHaveLength(1)
-    })
-
-    it("throws StateError when already connecting", async () => {
-      const { wire } = createWire()
-      await wire.connect({ clientId: "test-client" })
-
-      await expect(wire.connect({ clientId: "test-client" })).rejects.toThrow(StateError)
-    })
-
-    it("uses custom connect options", async () => {
-      const { wire, sentPackets } = createWire()
-
-      await wire.connect({
-        clientId: "custom-client",
-        cleanStart: false,
-        keepAlive: 120,
-        username: "user",
-        password: new Uint8Array([1, 2, 3])
-      })
-
-      expect(sentPackets).toHaveLength(1)
-      // Packet was sent - we can't easily decode it but at least it was sent
-    })
-
-    it("accepts valid will message", async () => {
-      const { wire, sentPackets } = createWire()
-
-      await wire.connect({
-        clientId: "test-client",
-        will: {
-          topic: "last/will/topic",
-          payload: new Uint8Array([0x62, 0x79, 0x65]),
-          qos: 1,
-          retain: false
-        }
-      })
-
-      expect(sentPackets).toHaveLength(1)
-    })
-
-    it("rejects will with invalid topic", async () => {
-      const { wire } = createWire()
-
-      await expect(
-        wire.connect({
-          clientId: "test-client",
-          will: {
-            topic: "invalid/+/topic",
-            payload: new Uint8Array(),
-            qos: 0,
-            retain: false
-          }
-        })
-      ).rejects.toThrow("will topic invalid")
-    })
-
-    it("rejects will with empty topic", async () => {
-      const { wire } = createWire()
-
-      await expect(
-        wire.connect({
-          clientId: "test-client",
-          will: {
-            topic: "",
-            payload: new Uint8Array(),
-            qos: 0,
-            retain: false
-          }
-        })
-      ).rejects.toThrow("will topic invalid")
-    })
-
-    it("rejects will with invalid QoS", async () => {
-      const { wire } = createWire()
-
-      await expect(
-        wire.connect({
-          clientId: "test-client",
-          will: {
-            topic: "valid/topic",
-            payload: new Uint8Array(),
-            qos: 3 as 0,
-            retain: false
-          }
-        })
-      ).rejects.toThrow("will QoS must be 0, 1, or 2")
-    })
-  })
-
-  describe("CONNACK handling", () => {
-    it("transitions to connected on successful CONNACK", async () => {
-      const onConnect = vi.fn()
-      const { wire } = createWire({ onConnect })
-
-      await wire.connect({ clientId: "test-client" })
-      expect(wire.connectionState).toBe("connecting")
-
-      const connack: ConnackPacket = {
-        type: PacketType.CONNACK,
-        sessionPresent: false,
-        reasonCode: 0x00
-      }
-      await receivePacket(wire, connack)
+      await connectClient(wire)
 
       expect(wire.connectionState).toBe("connected")
       expect(wire.isConnected).toBe(true)
-      expect(onConnect).toHaveBeenCalledWith(connack)
+      expect(wire.clientId).toBe("test-client")
+      expect(onConnect).toHaveBeenCalledTimes(1)
+      expect(sentPackets).toHaveLength(1) // CONNACK sent
     })
 
-    it("handles CONNACK with properties", async () => {
+    it("stores client ID from CONNECT packet", async () => {
       const { wire } = createWire()
-      await wire.connect({ clientId: "test-client" })
 
-      const connack: ConnackPacket = {
-        type: PacketType.CONNACK,
-        sessionPresent: false,
-        reasonCode: 0x00,
-        properties: {
-          receiveMaximum: 100,
-          maximumPacketSize: 1000000,
-          topicAliasMaximum: 10,
-          serverKeepAlive: 30,
-          assignedClientIdentifier: "server-assigned-id"
-        }
-      }
-      await receivePacket(wire, connack)
+      await connectClient(wire, { clientId: "my-unique-client" })
 
-      expect(wire.receiveMaximum).toBe(100)
-      expect(wire.maximumPacketSize).toBe(1000000)
+      expect(wire.clientId).toBe("my-unique-client")
+    })
+
+    it("uses assigned client ID from CONNACK if provided", async () => {
+      const onConnect = vi.fn(
+        (): ConnackPacket => ({
+          type: PacketType.CONNACK,
+          sessionPresent: false,
+          reasonCode: 0x00,
+          properties: {
+            assignedClientIdentifier: "server-assigned-id"
+          }
+        })
+      )
+      const { wire } = createWire({ onConnect })
+
+      await connectClient(wire, { clientId: "" })
+
       expect(wire.clientId).toBe("server-assigned-id")
     })
 
-    it("handles connection refused", async () => {
-      const onDisconnect = vi.fn()
-      const { wire } = createWire({ onDisconnect })
-      await wire.connect({ clientId: "test-client" })
+    it("handles MQTT 3.1.1 CONNECT", async () => {
+      const { wire } = createWire()
 
-      const connack: ConnackPacket = {
-        type: PacketType.CONNACK,
-        sessionPresent: false,
-        reasonCode: 0x86 // Bad username or password
-      }
-      await receivePacket(wire, connack)
+      await connectClient(wire, { protocolVersion: "3.1.1" })
+
+      expect(wire.isConnected).toBe(true)
+      expect(wire.version).toBe("3.1.1")
+    })
+
+    it("stores client properties from CONNECT", async () => {
+      const { wire } = createWire()
+
+      await connectClient(wire, {
+        properties: {
+          receiveMaximum: 100,
+          maximumPacketSize: 1024000,
+          topicAliasMaximum: 10
+        }
+      })
+
+      expect(wire.receiveMaximum).toBe(100)
+      expect(wire.maximumPacketSize).toBe(1024000)
+    })
+
+    it("rejects connection when hook throws", async () => {
+      const onDisconnect = vi.fn()
+      const onConnect = vi.fn((): ConnackPacket => {
+        throw new ProtocolError("not authorised", 0x87)
+      })
+      const { wire, sentPackets } = createWire({ onConnect, onDisconnect })
+
+      await connectClient(wire)
+
+      expect(wire.connectionState).toBe("disconnected")
+      expect(sentPackets).toHaveLength(1) // CONNACK with error
+      expect(onDisconnect).toHaveBeenCalled()
+    })
+
+    it("rejects duplicate CONNECT", async () => {
+      const onError = vi.fn()
+      const { wire } = createWire({ onError })
+
+      await connectClient(wire)
+      expect(wire.isConnected).toBe(true)
+
+      // Send another CONNECT
+      await connectClient(wire)
+
+      expect(onError).toHaveBeenCalled()
+    })
+
+    it("handles CONNACK with failure reason code", async () => {
+      const onDisconnect = vi.fn()
+      const onConnect = vi.fn(
+        (): ConnackPacket => ({
+          type: PacketType.CONNACK,
+          sessionPresent: false,
+          reasonCode: 0x87 // Not authorised
+        })
+      )
+      const { wire } = createWire({ onConnect, onDisconnect })
+
+      await connectClient(wire)
 
       expect(wire.connectionState).toBe("disconnected")
       expect(onDisconnect).toHaveBeenCalled()
     })
   })
 
-  describe("disconnect", () => {
-    it("sends DISCONNECT and cleans up when connected", async () => {
-      const { wire, sentPackets } = createWire()
-      await wire.connect({ clientId: "test" })
-      await receivePacket(wire, {
-        type: PacketType.CONNACK,
-        sessionPresent: false,
-        reasonCode: 0x00
-      })
-
-      await wire.disconnect()
-
-      expect(wire.connectionState).toBe("disconnected")
-      expect(sentPackets.length).toBeGreaterThan(1) // CONNECT + DISCONNECT
-    })
-
-    it("is a no-op when not connected", async () => {
-      const { wire, sentPackets } = createWire()
-
-      await wire.disconnect()
-
-      expect(wire.connectionState).toBe("disconnected")
-      expect(sentPackets).toHaveLength(0)
-    })
-
-    it("supports custom reason code", async () => {
-      const { wire, sentPackets } = createWire()
-      await wire.connect({ clientId: "test" })
-      await receivePacket(wire, {
-        type: PacketType.CONNACK,
-        sessionPresent: false,
-        reasonCode: 0x00
-      })
-
-      await wire.disconnect(0x04) // Disconnect with will message
-
-      expect(sentPackets.length).toBeGreaterThan(1)
-    })
-  })
-
-  describe("publish", () => {
-    async function connectedWire(): Promise<ReturnType<typeof createWire>> {
-      const result = createWire()
-      await result.wire.connect({ clientId: "test" })
-      await receivePacket(result.wire, {
-        type: PacketType.CONNACK,
-        sessionPresent: false,
-        reasonCode: 0x00,
-        properties: { topicAliasMaximum: 10 }
-      })
-      return result
-    }
-
-    it("publishes QoS 0 message", async () => {
-      const { wire, sentPackets } = await connectedWire()
-
-      const packetId = await wire.publish("topic/test", new Uint8Array([1, 2, 3]))
-
-      expect(packetId).toBeUndefined()
-      expect(sentPackets.length).toBeGreaterThan(1)
-    })
-
-    it("publishes QoS 1 message with packet ID", async () => {
-      const { wire } = await connectedWire()
-
-      const packetId = await wire.publish("topic/test", new Uint8Array([1, 2, 3]), { qos: 1 })
-
-      expect(packetId).toBeDefined()
-      expect(typeof packetId).toBe("number")
-    })
-
-    it("publishes QoS 2 message with packet ID", async () => {
-      const { wire } = await connectedWire()
-
-      const packetId = await wire.publish("topic/test", new Uint8Array([1, 2, 3]), { qos: 2 })
-
-      expect(packetId).toBeDefined()
-    })
-
-    it("throws StateError when not connected", async () => {
-      const { wire } = createWire()
-
-      await expect(wire.publish("topic", new Uint8Array())).rejects.toThrow(StateError)
-    })
-
-    it("supports retain and dup flags", async () => {
-      const { wire, sentPackets } = await connectedWire()
-
-      await wire.publish("topic", new Uint8Array(), { retain: true, dup: true })
-
-      expect(sentPackets.length).toBeGreaterThan(1)
-    })
-
-    it("uses topic aliases on subsequent publishes", async () => {
-      const { wire } = await connectedWire()
-
-      // First publish sets up alias
-      await wire.publish("topic/aliased", new Uint8Array())
-      // Second publish can use alias
-      await wire.publish("topic/aliased", new Uint8Array())
-
-      // Just verify no errors thrown
-    })
-  })
-
-  describe("subscribe", () => {
-    async function connectedWire(): Promise<ReturnType<typeof createWire>> {
-      const result = createWire()
-      await result.wire.connect({ clientId: "test" })
-      await receivePacket(result.wire, {
-        type: PacketType.CONNACK,
-        sessionPresent: false,
-        reasonCode: 0x00
-      })
-      return result
-    }
-
-    it("sends SUBSCRIBE packet", async () => {
-      const { wire, sentPackets } = await connectedWire()
-
-      const packetId = await wire.subscribe([{ topicFilter: "topic/#", options: { qos: 1 } }])
-
-      expect(packetId).toBe(1)
-      expect(sentPackets.length).toBeGreaterThan(1)
-    })
-
-    it("throws when not connected", async () => {
-      const { wire } = createWire()
-
-      await expect(wire.subscribe([{ topicFilter: "topic", options: { qos: 0 } }])).rejects.toThrow(
-        StateError
-      )
-    })
-
-    it("throws when subscriptions empty", async () => {
-      const { wire } = await connectedWire()
-
-      await expect(wire.subscribe([])).rejects.toThrow("empty")
-    })
-  })
-
-  describe("unsubscribe", () => {
-    async function connectedWire(): Promise<ReturnType<typeof createWire>> {
-      const result = createWire()
-      await result.wire.connect({ clientId: "test" })
-      await receivePacket(result.wire, {
-        type: PacketType.CONNACK,
-        sessionPresent: false,
-        reasonCode: 0x00
-      })
-      return result
-    }
-
-    it("sends UNSUBSCRIBE packet", async () => {
-      const { wire, sentPackets } = await connectedWire()
-
-      const packetId = await wire.unsubscribe(["topic/#"])
-
-      expect(packetId).toBe(1)
-      expect(sentPackets.length).toBeGreaterThan(1)
-    })
-
-    it("throws when not connected", async () => {
-      const { wire } = createWire()
-
-      await expect(wire.unsubscribe(["topic"])).rejects.toThrow(StateError)
-    })
-
-    it("throws when topicFilters empty", async () => {
-      const { wire } = await connectedWire()
-
-      await expect(wire.unsubscribe([])).rejects.toThrow("empty")
-    })
-  })
-
-  describe("ping", () => {
-    it("sends PINGREQ when connected", async () => {
-      const { wire, sentPackets } = createWire()
-      await wire.connect({ clientId: "test" })
-      await receivePacket(wire, {
-        type: PacketType.CONNACK,
-        sessionPresent: false,
-        reasonCode: 0x00
-      })
-
-      await wire.ping()
-
-      expect(sentPackets.length).toBeGreaterThan(1)
-    })
-
-    it("throws when not connected", async () => {
-      const { wire } = createWire()
-
-      await expect(wire.ping()).rejects.toThrow(StateError)
-    })
-  })
-
-  describe("PUBLISH handling (inbound)", () => {
-    async function connectedWire(options?: { topicAliasMaximum?: number }): Promise<{
-      wire: MqttWire
-      onPublish: ReturnType<typeof vi.fn>
-      sentPackets: Uint8Array[]
-    }> {
+  describe("PUBLISH handling (client → server)", () => {
+    it("calls onPublish hook for QoS 0 message", async () => {
       const onPublish = vi.fn()
-      const sentPackets: Uint8Array[] = []
-      const wire = new MqttWire(
-        {
-          onSend: async (data: Uint8Array) => {
-            sentPackets.push(data)
-            return Promise.resolve()
-          },
-          onPublish
-        },
-        { topicAliasMaximum: options?.topicAliasMaximum }
-      )
-      await wire.connect({ clientId: "test" })
-      await receivePacket(wire, {
-        type: PacketType.CONNACK,
-        sessionPresent: false,
-        reasonCode: 0x00,
-        properties: { topicAliasMaximum: 10 }
-      })
-      return { wire, onPublish, sentPackets }
-    }
-
-    it("delivers QoS 0 message to hook", async () => {
-      const { wire, onPublish } = await connectedWire()
+      const { wire } = createWire({ onPublish })
+      await connectClient(wire)
 
       const publish: PublishPacket = {
         type: PacketType.PUBLISH,
@@ -455,11 +202,18 @@ describe("MqttWire", () => {
       }
       await receivePacket(wire, publish)
 
-      expect(onPublish).toHaveBeenCalled()
+      expect(onPublish).toHaveBeenCalledWith(
+        expect.objectContaining({
+          topic: "test/topic",
+          qos: 0
+        })
+      )
     })
 
-    it("sends PUBACK for QoS 1 and delivers", async () => {
-      const { wire, onPublish, sentPackets } = await connectedWire()
+    it("sends PUBACK for QoS 1 message", async () => {
+      const onPublish = vi.fn()
+      const { wire, sentPackets } = createWire({ onPublish })
+      await connectClient(wire)
       const initialPackets = sentPackets.length
 
       const publish: PublishPacket = {
@@ -473,12 +227,14 @@ describe("MqttWire", () => {
       }
       await receivePacket(wire, publish)
 
+      expect(sentPackets.length).toBe(initialPackets + 1) // PUBACK sent
       expect(onPublish).toHaveBeenCalled()
-      expect(sentPackets.length).toBeGreaterThan(initialPackets) // PUBACK sent
     })
 
-    it("sends PUBREC for QoS 2 (first part)", async () => {
-      const { wire, sentPackets, onPublish } = await connectedWire()
+    it("sends PUBREC for QoS 2 message", async () => {
+      const onPublish = vi.fn()
+      const { wire, sentPackets } = createWire({ onPublish })
+      await connectClient(wire)
       const initialPackets = sentPackets.length
 
       const publish: PublishPacket = {
@@ -492,300 +248,241 @@ describe("MqttWire", () => {
       }
       await receivePacket(wire, publish)
 
-      // QoS 2 doesn't deliver until PUBREL
+      expect(sentPackets.length).toBe(initialPackets + 1) // PUBREC sent
+      // onPublish NOT called yet (QoS 2 delivers on PUBREL)
       expect(onPublish).not.toHaveBeenCalled()
-      expect(sentPackets.length).toBeGreaterThan(initialPackets) // PUBREC sent
     })
 
-    it("handles topic alias on inbound PUBLISH", async () => {
-      const { wire, onPublish } = await connectedWire({ topicAliasMaximum: 10 })
-
-      // First message sets up alias
-      const publish1: PublishPacket = {
-        type: PacketType.PUBLISH,
-        topic: "sensor/temperature",
-        qos: 0,
-        retain: false,
-        dup: false,
-        payload: new Uint8Array([1]),
-        properties: { topicAlias: 1 }
-      }
-      await receivePacket(wire, publish1)
-
-      // Second message uses alias (empty topic)
-      const publish2: PublishPacket = {
-        type: PacketType.PUBLISH,
-        topic: "",
-        qos: 0,
-        retain: false,
-        dup: false,
-        payload: new Uint8Array([2]),
-        properties: { topicAlias: 1 }
-      }
-      await receivePacket(wire, publish2)
-
-      expect(onPublish).toHaveBeenCalledTimes(2)
-      // Both should resolve to sensor/temperature
-    })
-  })
-
-  describe("QoS flow acknowledgements", () => {
-    async function connectedWire(): Promise<ReturnType<typeof createWire>> {
-      const result = createWire()
-      await result.wire.connect({ clientId: "test" })
-      await receivePacket(result.wire, {
-        type: PacketType.CONNACK,
-        sessionPresent: false,
-        reasonCode: 0x00
-      })
-      return result
-    }
-
-    it("handles PUBACK for outbound QoS 1", async () => {
-      const { wire } = await connectedWire()
-
-      const packetId = await wire.publish("topic", new Uint8Array(), { qos: 1 })
-
-      const puback: PubackPacket = {
-        type: PacketType.PUBACK,
-        packetId: packetId!
-      }
-      await receivePacket(wire, puback)
-
-      // No error means success
-    })
-
-    it("handles QoS 2 flow: PUBREC → PUBREL → PUBCOMP", async () => {
-      const { wire, sentPackets } = await connectedWire()
-
-      const packetId = await wire.publish("topic", new Uint8Array(), { qos: 2 })
-
-      // Receive PUBREC
-      const pubrec: PubrecPacket = {
-        type: PacketType.PUBREC,
-        packetId: packetId!
-      }
-      await receivePacket(wire, pubrec)
-      const afterPubrec = sentPackets.length
-
-      // PUBREL should have been sent
-      expect(sentPackets.length).toBeGreaterThan(afterPubrec - 1)
-
-      // Receive PUBCOMP
-      const pubcomp: PubcompPacket = {
-        type: PacketType.PUBCOMP,
-        packetId: packetId!
-      }
-      await receivePacket(wire, pubcomp)
-
-      // Flow complete
-    })
-
-    it("completes QoS 2 inbound with PUBREL", async () => {
+    it("completes QoS 2 flow and delivers on PUBREL", async () => {
       const onPublish = vi.fn()
-      const wire = new MqttWire({ onSend: vi.fn(), onPublish })
-      await wire.connect({ clientId: "test" })
-      await receivePacket(wire, {
-        type: PacketType.CONNACK,
-        sessionPresent: false,
-        reasonCode: 0x00
-      })
+      const { wire, sentPackets } = createWire({ onPublish })
+      await connectClient(wire)
 
-      // Receive QoS 2 PUBLISH
+      // Client sends PUBLISH QoS 2
       const publish: PublishPacket = {
         type: PacketType.PUBLISH,
-        topic: "test",
+        topic: "test/topic",
         packetId: 1,
         qos: 2,
         retain: false,
         dup: false,
-        payload: new Uint8Array()
+        payload: new Uint8Array([1, 2, 3])
       }
       await receivePacket(wire, publish)
 
-      // Receive PUBREL - triggers delivery
+      const packetsAfterPublish = sentPackets.length
+
+      // Client sends PUBREL
       const pubrel: PubrelPacket = {
         type: PacketType.PUBREL,
         packetId: 1
       }
       await receivePacket(wire, pubrel)
 
-      expect(onPublish).toHaveBeenCalled()
+      expect(sentPackets.length).toBe(packetsAfterPublish + 1) // PUBCOMP sent
+      expect(onPublish).toHaveBeenCalledWith(
+        expect.objectContaining({
+          topic: "test/topic",
+          qos: 2
+        })
+      )
     })
   })
 
-  describe("SUBACK handling", () => {
-    it("calls onSubscribe hook", async () => {
-      const onSubscribe = vi.fn()
-      const { wire } = createWire({ onSubscribe })
-      await wire.connect({ clientId: "test" })
-      await receivePacket(wire, {
-        type: PacketType.CONNACK,
-        sessionPresent: false,
-        reasonCode: 0x00
-      })
+  describe("PUBLISH (server → client)", () => {
+    it("sends QoS 0 publish", async () => {
+      const { wire, sentPackets } = createWire()
+      await connectClient(wire)
+      const initialPackets = sentPackets.length
 
-      await wire.subscribe([{ topicFilter: "topic/#", options: { qos: 1 } }])
+      const result = await wire.publish("test/topic", new Uint8Array([1, 2, 3]))
 
-      const suback: SubackPacket = {
-        type: PacketType.SUBACK,
+      expect(result).toBeUndefined() // No packet ID for QoS 0
+      expect(sentPackets.length).toBe(initialPackets + 1)
+    })
+
+    it("sends QoS 1 publish and returns packet ID", async () => {
+      const { wire, sentPackets } = createWire()
+      await connectClient(wire)
+      const initialPackets = sentPackets.length
+
+      const packetId = await wire.publish("test/topic", new Uint8Array([1, 2, 3]), { qos: 1 })
+
+      expect(packetId).toBe(1)
+      expect(sentPackets.length).toBe(initialPackets + 1)
+    })
+
+    it("throws StateError when not connected", async () => {
+      const { wire } = createWire()
+
+      await expect(wire.publish("topic", new Uint8Array())).rejects.toThrow(StateError)
+    })
+
+    it("validates topic name", async () => {
+      const { wire } = createWire()
+      await connectClient(wire)
+
+      // Invalid topic with wildcard
+      await expect(wire.publish("test/+/invalid", new Uint8Array())).rejects.toThrow(
+        "invalid topic"
+      )
+    })
+  })
+
+  describe("SUBSCRIBE handling", () => {
+    it("calls onSubscribe hook and sends SUBACK", async () => {
+      const onSubscribe = vi.fn(
+        (packet: SubscribePacket): SubackPacket => ({
+          type: PacketType.SUBACK,
+          packetId: packet.packetId,
+          reasonCodes: [0, 1] // Grant QoS 0 and 1
+        })
+      )
+      const { wire, sentPackets } = createWire({ onSubscribe })
+      await connectClient(wire)
+      const initialPackets = sentPackets.length
+
+      const subscribe: SubscribePacket = {
+        type: PacketType.SUBSCRIBE,
         packetId: 1,
-        reasonCodes: [0x01]
+        subscriptions: [
+          { topicFilter: "test/#", options: { qos: 1 } },
+          { topicFilter: "other/+", options: { qos: 2 } }
+        ]
       }
-      await receivePacket(wire, suback)
+      await receivePacket(wire, subscribe)
 
-      expect(onSubscribe).toHaveBeenCalled()
+      expect(onSubscribe).toHaveBeenCalledWith(
+        expect.objectContaining({
+          packetId: 1,
+          subscriptions: expect.arrayContaining([
+            expect.objectContaining({ topicFilter: "test/#" })
+          ])
+        })
+      )
+      expect(sentPackets.length).toBe(initialPackets + 1) // SUBACK sent
     })
-  })
 
-  describe("UNSUBACK handling", () => {
-    it("calls onUnsubscribe hook", async () => {
-      const onUnsubscribe = vi.fn()
-      const { wire } = createWire({ onUnsubscribe })
-      await wire.connect({ clientId: "test" })
-      await receivePacket(wire, {
-        type: PacketType.CONNACK,
-        sessionPresent: false,
-        reasonCode: 0x00
-      })
+    it("grants requested QoS when no hook provided", async () => {
+      const { wire, sentPackets } = createWire({ onSubscribe: undefined })
+      await connectClient(wire)
+      const initialPackets = sentPackets.length
 
-      await wire.unsubscribe(["topic/#"])
-
-      const unsuback: UnsubackPacket = {
-        type: PacketType.UNSUBACK,
+      const subscribe: SubscribePacket = {
+        type: PacketType.SUBSCRIBE,
         packetId: 1,
-        reasonCodes: [0x00]
+        subscriptions: [{ topicFilter: "test/#", options: { qos: 2 } }]
       }
-      await receivePacket(wire, unsuback)
+      await receivePacket(wire, subscribe)
 
-      expect(onUnsubscribe).toHaveBeenCalled()
+      expect(sentPackets.length).toBe(initialPackets + 1) // SUBACK sent
     })
   })
 
-  describe("DISCONNECT handling (inbound)", () => {
+  describe("UNSUBSCRIBE handling", () => {
+    it("calls onUnsubscribe hook and sends UNSUBACK", async () => {
+      const onUnsubscribe = vi.fn(
+        (packet: UnsubscribePacket): UnsubackPacket => ({
+          type: PacketType.UNSUBACK,
+          packetId: packet.packetId,
+          reasonCodes: [0x00, 0x11] // Success and no subscription
+        })
+      )
+      const { wire, sentPackets } = createWire({ onUnsubscribe })
+      await connectClient(wire)
+      const initialPackets = sentPackets.length
+
+      const unsubscribe: UnsubscribePacket = {
+        type: PacketType.UNSUBSCRIBE,
+        packetId: 1,
+        topicFilters: ["test/#", "other/+"]
+      }
+      await receivePacket(wire, unsubscribe)
+
+      expect(onUnsubscribe).toHaveBeenCalledWith(
+        expect.objectContaining({
+          packetId: 1,
+          topicFilters: ["test/#", "other/+"]
+        })
+      )
+      expect(sentPackets.length).toBe(initialPackets + 1) // UNSUBACK sent
+    })
+  })
+
+  describe("PINGREQ handling", () => {
+    it("responds with PINGRESP", async () => {
+      const { wire, sentPackets } = createWire()
+      await connectClient(wire)
+      const initialPackets = sentPackets.length
+
+      await receivePacket(wire, { type: PacketType.PINGREQ })
+
+      expect(sentPackets.length).toBe(initialPackets + 1) // PINGRESP sent
+    })
+  })
+
+  describe("DISCONNECT handling", () => {
     it("calls onDisconnect hook", async () => {
       const onDisconnect = vi.fn()
       const { wire } = createWire({ onDisconnect })
-      await wire.connect({ clientId: "test" })
-      await receivePacket(wire, {
-        type: PacketType.CONNACK,
-        sessionPresent: false,
-        reasonCode: 0x00
-      })
+      await connectClient(wire)
 
       const disconnect: DisconnectPacket = {
         type: PacketType.DISCONNECT,
-        reasonCode: 0x8b // Server shutting down
+        reasonCode: 0x00
       }
       await receivePacket(wire, disconnect)
 
       expect(wire.connectionState).toBe("disconnected")
-      expect(onDisconnect).toHaveBeenCalledWith(disconnect)
+      // Note: DISCONNECT with reasonCode 0x00 is encoded as minimal (no reason code byte)
+      // so the decoded packet may not have reasonCode property
+      expect(onDisconnect).toHaveBeenCalledWith(
+        expect.objectContaining({ type: PacketType.DISCONNECT })
+      )
     })
   })
 
-  describe("PINGRESP handling", () => {
-    it("handles PINGRESP without error", async () => {
-      const { wire } = createWire()
-      await wire.connect({ clientId: "test" })
-      await receivePacket(wire, {
-        type: PacketType.CONNACK,
-        sessionPresent: false,
-        reasonCode: 0x00
-      })
+  describe("disconnect() method", () => {
+    it("sends DISCONNECT to client (MQTT 5.0)", async () => {
+      const { wire, sentPackets } = createWire()
+      await connectClient(wire)
+      const initialPackets = sentPackets.length
 
-      const pingresp: PingrespPacket = {
-        type: PacketType.PINGRESP
-      }
-      await receivePacket(wire, pingresp)
-
-      // Should just work without doing anything
-      expect(wire.isConnected).toBe(true)
-    })
-  })
-
-  describe("reset", () => {
-    it("clears all state", async () => {
-      const { wire } = createWire()
-      await wire.connect({ clientId: "test" })
-      await receivePacket(wire, {
-        type: PacketType.CONNACK,
-        sessionPresent: false,
-        reasonCode: 0x00
-      })
-
-      wire.reset()
+      await wire.disconnect()
 
       expect(wire.connectionState).toBe("disconnected")
-      expect(wire.clientId).toBeNull()
+      expect(sentPackets.length).toBe(initialPackets + 1) // DISCONNECT sent
+    })
+
+    it("does not send DISCONNECT for MQTT 3.1.1", async () => {
+      const { wire, sentPackets } = createWire()
+      await connectClient(wire, { protocolVersion: "3.1.1" })
+      const initialPackets = sentPackets.length
+
+      await wire.disconnect()
+
+      expect(wire.connectionState).toBe("disconnected")
+      // 3.1.1 doesn't support server-initiated DISCONNECT
+      expect(sentPackets.length).toBe(initialPackets)
+    })
+
+    it("handles disconnect when not connected", async () => {
+      const { wire } = createWire()
+
+      // Should not throw
+      await wire.disconnect()
+
+      expect(wire.connectionState).toBe("disconnected")
     })
   })
 
-  describe("error classes", () => {
-    it("ProtocolError has reasonCode", () => {
-      const err = new ProtocolError("test error", 0x81)
-      expect(err.reasonCode).toBe(0x81)
-      expect(err.name).toBe("ProtocolError")
-    })
-
-    it("ProtocolError uses default reasonCode", () => {
-      const err = new ProtocolError("test error")
-      expect(err.reasonCode).toBe(0x82) // Default protocol error
-    })
-
-    it("StateError has state", () => {
-      const err = new StateError("test error", "connecting")
-      expect(err.state).toBe("connecting")
-      expect(err.name).toBe("StateError")
-    })
-  })
-
-  describe("protocol error handling", () => {
-    it("calls onError hook on protocol error", async () => {
+  describe("protocol errors", () => {
+    it("rejects server-to-client packets", async () => {
       const onError = vi.fn()
-      const wire = new MqttWire({ onSend: vi.fn(), onError })
-      await wire.connect({ clientId: "test" })
+      const { wire } = createWire({ onError })
+      await connectClient(wire)
 
-      // Send a proper packet header but invalid content
-      const invalidPacket = new Uint8Array([0x20, 0x02, 0x00, 0xff]) // CONNACK with bad code
-      await wire.receive(invalidPacket)
-
-      // Should still be in connecting state after bad CONNACK (refused)
-    })
-  })
-
-  describe("keepalive", () => {
-    it("is disabled when keepAlive is 0", async () => {
-      const wire = new MqttWire({ onSend: vi.fn() }, { keepAlive: 0 })
-      await wire.connect({ clientId: "test", keepAlive: 0 })
-      await receivePacket(wire, {
-        type: PacketType.CONNACK,
-        sessionPresent: false,
-        reasonCode: 0x00
-      })
-
-      expect(wire.isConnected).toBe(true)
-      // No keepalive timer running
-    })
-
-    it("respects server keepalive override", async () => {
-      const { wire } = createWire()
-      await wire.connect({ clientId: "test", keepAlive: 60 })
-      await receivePacket(wire, {
-        type: PacketType.CONNACK,
-        sessionPresent: false,
-        reasonCode: 0x00,
-        properties: { serverKeepAlive: 30 }
-      })
-
-      expect(wire.isConnected).toBe(true)
-    })
-  })
-
-  describe("connection state", () => {
-    it("handles CONNACK during wrong state", async () => {
-      const { wire } = createWire()
-      // Not connecting, just disconnected
+      // CONNACK is a server-to-client packet
       const connack: ConnackPacket = {
         type: PacketType.CONNACK,
         sessionPresent: false,
@@ -793,733 +490,315 @@ describe("MqttWire", () => {
       }
       await receivePacket(wire, connack)
 
-      // Should be ignored
-      expect(wire.connectionState).toBe("disconnected")
-    })
-
-    it("handles PUBLISH when not connected", async () => {
-      const onPublish = vi.fn()
-      const wire = new MqttWire({ onSend: vi.fn(), onPublish })
-      await wire.connect({ clientId: "test" })
-      // Still connecting, not connected
-
-      const publish: PublishPacket = {
-        type: PacketType.PUBLISH,
-        topic: "test",
-        qos: 0,
-        retain: false,
-        dup: false,
-        payload: new Uint8Array()
-      }
-      await receivePacket(wire, publish)
-
-      // Should be ignored because state is not connected
-      expect(onPublish).not.toHaveBeenCalled()
+      expect(onError).toHaveBeenCalledWith(expect.any(ProtocolError))
     })
   })
 
-  describe("3.1.1 protocol", () => {
-    it("connects with 3.1.1 version", async () => {
-      const wire = new MqttWire({ onSend: vi.fn() }, { protocolVersion: "3.1.1" })
-      await wire.connect({ clientId: "test" })
-      await receivePacket(wire, {
-        type: PacketType.CONNACK,
-        sessionPresent: false,
-        reasonCode: 0x00
-      })
-
-      expect(wire.version).toBe("3.1.1")
+  describe("reset()", () => {
+    it("resets all state", async () => {
+      const { wire } = createWire()
+      await connectClient(wire)
       expect(wire.isConnected).toBe(true)
-    })
 
-    it("publishes without topic aliases in 3.1.1", async () => {
-      const sentPackets: Uint8Array[] = []
-      const wire = new MqttWire(
-        {
-          onSend: async (data: Uint8Array) => {
-            sentPackets.push(data)
-            return Promise.resolve()
-          }
-        },
-        { protocolVersion: "3.1.1" }
-      )
-      await wire.connect({ clientId: "test" })
-      await receivePacket(wire, {
-        type: PacketType.CONNACK,
-        sessionPresent: false,
-        reasonCode: 0x00
-      })
+      wire.reset()
 
-      await wire.publish("topic", new Uint8Array())
-
-      expect(sentPackets.length).toBeGreaterThan(1)
+      expect(wire.connectionState).toBe("awaiting-connect")
+      expect(wire.clientId).toBeNull()
     })
   })
 
-  describe("disconnect with properties", () => {
-    it("sends disconnect with custom properties", async () => {
+  describe("receive() error handling", () => {
+    it("handles malformed packet data", async () => {
+      const onError = vi.fn()
+      const { wire } = createWire({ onError })
+      await connectClient(wire)
+
+      // Send malformed data (packet type 0 is invalid)
+      const malformed = new Uint8Array([0x00, 0x00]) // Type 0, remaining length 0
+      await wire.receive(malformed)
+
+      expect(onError).toHaveBeenCalledWith(expect.any(ProtocolError))
+    })
+  })
+
+  describe("QoS 2 server → client flow", () => {
+    it("completes QoS 2 outbound flow with PUBREC and PUBCOMP", async () => {
       const { wire, sentPackets } = createWire()
-      await wire.connect({ clientId: "test" })
-      await receivePacket(wire, {
-        type: PacketType.CONNACK,
-        sessionPresent: false,
-        reasonCode: 0x00
-      })
+      await connectClient(wire)
+      const initialPackets = sentPackets.length
 
-      await wire.disconnect(0x00, { reasonString: "Client closing" })
+      // Server sends QoS 2 PUBLISH
+      const packetId = await wire.publish("test/topic", new Uint8Array([1, 2, 3]), { qos: 2 })
+      expect(packetId).toBe(1)
+      expect(sentPackets.length).toBe(initialPackets + 1)
 
-      expect(sentPackets.length).toBeGreaterThan(1)
+      // Client responds with PUBREC
+      await receivePacket(wire, { type: PacketType.PUBREC, packetId: 1 })
+      expect(sentPackets.length).toBe(initialPackets + 2) // PUBREL sent
+
+      // Client responds with PUBCOMP
+      await receivePacket(wire, { type: PacketType.PUBCOMP, packetId: 1 })
+      // Flow completed
+    })
+
+    it("handles PUBREC for unknown packet ID", async () => {
+      const { wire } = createWire()
+      await connectClient(wire)
+
+      // PUBREC for non-existent flow (should not throw)
+      await receivePacket(wire, { type: PacketType.PUBREC, packetId: 999 })
+    })
+
+    it("handles PUBCOMP for unknown packet ID", async () => {
+      const { wire } = createWire()
+      await connectClient(wire)
+
+      // PUBCOMP for non-existent flow (should not throw)
+      await receivePacket(wire, { type: PacketType.PUBCOMP, packetId: 999 })
     })
   })
 
-  describe("framing errors", () => {
-    it("handles framing error in receive", async () => {
-      const onError = vi.fn()
-      const { wire } = createWire({ onError })
-      await wire.connect({ clientId: "test" })
-      await receivePacket(wire, {
-        type: PacketType.CONNACK,
-        sessionPresent: false,
-        reasonCode: 0x00
-      })
+  describe("QoS 1 server → client flow", () => {
+    it("completes QoS 1 outbound flow with PUBACK", async () => {
+      const { wire, sentPackets } = createWire()
+      await connectClient(wire)
+      const initialPackets = sentPackets.length
 
-      // Send incomplete varint (continuation bit set but no more bytes)
-      // This will cause a framing error when trying to read remaining length
-      const incompleteFrame = new Uint8Array([0x30, 0x80, 0x80, 0x80, 0x80, 0x80])
-      await wire.receive(incompleteFrame)
+      // Server sends QoS 1 PUBLISH
+      const packetId = await wire.publish("test/topic", new Uint8Array([1, 2, 3]), { qos: 1 })
+      expect(packetId).toBe(1)
+      expect(sentPackets.length).toBe(initialPackets + 1)
 
-      expect(onError).toHaveBeenCalled()
+      // Client responds with PUBACK
+      await receivePacket(wire, { type: PacketType.PUBACK, packetId: 1 })
+      // Flow completed, packet ID released
+    })
+
+    it("handles PUBACK for unknown packet ID", async () => {
+      const { wire } = createWire()
+      await connectClient(wire)
+
+      // PUBACK for non-existent flow (should not throw)
+      await receivePacket(wire, { type: PacketType.PUBACK, packetId: 999 })
     })
   })
 
-  describe("decode errors", () => {
-    it("handles unexpected packet type from server", async () => {
-      const onError = vi.fn()
-      const { wire } = createWire({ onError })
-      await wire.connect({ clientId: "test" })
-      await receivePacket(wire, {
-        type: PacketType.CONNACK,
-        sessionPresent: false,
-        reasonCode: 0x00
-      })
+  describe("PUBREL handling", () => {
+    it("sends PUBCOMP even for unknown flow", async () => {
+      const { wire, sentPackets } = createWire()
+      await connectClient(wire)
+      const initialPackets = sentPackets.length
 
-      // Send a CONNECT packet (type 0x10) which servers should never send
-      // This tests the error path for unexpected client-to-server packets
-      // Using proper encoding to ensure framing works
-      const connectPacket = new Uint8Array([
-        0x10,
-        0x0d, // CONNECT, remaining length 13
-        0x00,
-        0x04,
-        0x4d,
-        0x51,
-        0x54,
-        0x54, // "MQTT"
-        0x05, // Protocol level 5
-        0x02, // Connect flags (clean start)
-        0x00,
-        0x3c, // Keep alive 60
-        0x00, // Properties length 0
-        0x00,
-        0x00 // Client ID length 0
-      ])
-      await wire.receive(connectPacket)
-
-      expect(onError).toHaveBeenCalled()
-    })
-  })
-
-  describe("receive maximum exceeded", () => {
-    it("throws when receive maximum exceeded", async () => {
-      const wire = new MqttWire({ onSend: vi.fn() }, { receiveMaximum: 1 })
-      await wire.connect({ clientId: "test" })
-      await receivePacket(wire, {
-        type: PacketType.CONNACK,
-        sessionPresent: false,
-        reasonCode: 0x00,
-        properties: { receiveMaximum: 1 }
-      })
-
-      // First QoS 1 publish should work
-      await wire.publish("topic", new Uint8Array(), { qos: 1 })
-
-      // Second should fail due to receive maximum
-      await expect(wire.publish("topic2", new Uint8Array(), { qos: 1 })).rejects.toThrow(
-        "receive maximum exceeded"
-      )
-    })
-  })
-
-  describe("unexpected packet types", () => {
-    it("handles CONNECT packet from server as protocol error", async () => {
-      const onError = vi.fn()
-      const { wire } = createWire({ onError })
-      await wire.connect({ clientId: "test" })
-      await receivePacket(wire, {
-        type: PacketType.CONNACK,
-        sessionPresent: false,
-        reasonCode: 0x00
-      })
-
-      // Manually craft a CONNECT packet (which server should never send)
-      // Type 0x10 (CONNECT), remaining length 0
-      const connectPacket = new Uint8Array([0x10, 0x00])
-      await wire.receive(connectPacket)
-
-      expect(onError).toHaveBeenCalled()
-    })
-
-    it("handles SUBSCRIBE packet from server as protocol error", async () => {
-      const onError = vi.fn()
-      const { wire } = createWire({ onError })
-      await wire.connect({ clientId: "test" })
-      await receivePacket(wire, {
-        type: PacketType.CONNACK,
-        sessionPresent: false,
-        reasonCode: 0x00
-      })
-
-      // Type 0x82 (SUBSCRIBE), remaining length 0
-      const subscribePacket = new Uint8Array([0x82, 0x00])
-      await wire.receive(subscribePacket)
-
-      expect(onError).toHaveBeenCalled()
-    })
-  })
-
-  describe("topic alias errors", () => {
-    it("handles invalid topic alias on inbound PUBLISH", async () => {
-      const onError = vi.fn()
-      const wire = new MqttWire({ onSend: vi.fn(), onError }, { topicAliasMaximum: 5 })
-      await wire.connect({ clientId: "test" })
-      await receivePacket(wire, {
-        type: PacketType.CONNACK,
-        sessionPresent: false,
-        reasonCode: 0x00,
-        properties: { topicAliasMaximum: 5 }
-      })
-
-      // Send PUBLISH with topic alias that hasn't been set yet (empty topic)
-      const publish: PublishPacket = {
-        type: PacketType.PUBLISH,
-        topic: "",
-        qos: 0,
-        retain: false,
-        dup: false,
-        payload: new Uint8Array(),
-        properties: { topicAlias: 99 } // Invalid alias
-      }
-      await receivePacket(wire, publish)
-
-      expect(onError).toHaveBeenCalled()
-    })
-  })
-
-  describe("QoS 2 with topic alias resolution", () => {
-    it("resolves topic alias on PUBREL delivery", async () => {
-      const onPublish = vi.fn()
-      const wire = new MqttWire({ onSend: vi.fn(), onPublish }, { topicAliasMaximum: 10 })
-      await wire.connect({ clientId: "test" })
-      await receivePacket(wire, {
-        type: PacketType.CONNACK,
-        sessionPresent: false,
-        reasonCode: 0x00,
-        properties: { topicAliasMaximum: 10 }
-      })
-
-      // Send QoS 2 PUBLISH with topic alias
-      const publish: PublishPacket = {
-        type: PacketType.PUBLISH,
-        topic: "sensor/data",
-        packetId: 1,
-        qos: 2,
-        retain: false,
-        dup: false,
-        payload: new Uint8Array([1, 2, 3]),
-        properties: { topicAlias: 1 }
-      }
-      await receivePacket(wire, publish)
-
-      // Complete QoS 2 flow with PUBREL
+      // PUBREL for non-existent flow
       const pubrel: PubrelPacket = {
         type: PacketType.PUBREL,
-        packetId: 1
+        packetId: 999
       }
       await receivePacket(wire, pubrel)
 
-      expect(onPublish).toHaveBeenCalled()
-      expect(onPublish.mock.calls[0][0].topic).toBe("sensor/data")
+      // PUBCOMP should still be sent
+      expect(sentPackets.length).toBe(initialPackets + 1)
     })
   })
 
-  describe("protocol error with disconnect", () => {
-    it("sends DISCONNECT on protocol error when connected (5.0)", async () => {
-      const onError = vi.fn()
-      const sentPackets: Uint8Array[] = []
-      const wire = new MqttWire({
-        onSend: async (data) => {
-          sentPackets.push(data)
-          return Promise.resolve()
-        },
-        onError
-      })
-      await wire.connect({ clientId: "test" })
-      await receivePacket(wire, {
-        type: PacketType.CONNACK,
-        sessionPresent: false,
-        reasonCode: 0x00
-      })
+  describe("PINGREQ when not connected", () => {
+    it("ignores PINGREQ before connection", async () => {
+      const { wire, sentPackets } = createWire()
 
-      const packetsBefore = sentPackets.length
+      // Send PINGREQ without connecting first - need to encode manually
+      // since it bypasses normal state checks
+      const pingreq = new Uint8Array([0xc0, 0x00]) // PINGREQ packet
+      await wire.receive(pingreq)
 
-      // Send a CONNECT packet which triggers protocol error (server should never send CONNECT)
-      const connectPacket = new Uint8Array([
-        0x10,
-        0x0d, // CONNECT, remaining length 13
+      // No PINGRESP should be sent since not connected
+      expect(sentPackets.length).toBe(0)
+    })
+  })
+
+  describe("PUBLISH when not connected", () => {
+    it("ignores PUBLISH before connection", async () => {
+      const onPublish = vi.fn()
+      const { wire, sentPackets } = createWire({ onPublish })
+
+      // Manually create encoded PUBLISH (bypassing state checks)
+      // QoS 0 PUBLISH to avoid packet ID issues
+      const topic = new TextEncoder().encode("test")
+      const publish = new Uint8Array([
+        0x30, // PUBLISH QoS 0
+        topic.length + 2,
         0x00,
-        0x04,
-        0x4d,
-        0x51,
-        0x54,
-        0x54, // "MQTT"
-        0x05, // Protocol level 5
-        0x02, // Connect flags (clean start)
-        0x00,
-        0x3c, // Keep alive 60
-        0x00, // Properties length 0
-        0x00,
-        0x00 // Client ID length 0
+        topic.length,
+        ...topic
       ])
-      await wire.receive(connectPacket)
+      await wire.receive(publish)
 
-      // Should have sent DISCONNECT
-      expect(sentPackets.length).toBeGreaterThan(packetsBefore)
-      expect(wire.connectionState).toBe("disconnected")
+      // Should be ignored, onPublish not called
+      expect(onPublish).not.toHaveBeenCalled()
+      expect(sentPackets.length).toBe(0)
     })
+  })
 
-    it("does not send DISCONNECT on protocol error in 3.1.1", async () => {
-      const onError = vi.fn()
-      const sentPackets: Uint8Array[] = []
-      const wire = new MqttWire(
-        {
-          onSend: async (data) => {
-            sentPackets.push(data)
-            return Promise.resolve()
-          },
-          onError
-        },
-        { protocolVersion: "3.1.1" }
-      )
-      await wire.connect({ clientId: "test" })
-      await receivePacket(wire, {
-        type: PacketType.CONNACK,
-        sessionPresent: false,
-        reasonCode: 0x00
-      })
+  describe("UNSUBSCRIBE without hook", () => {
+    it("sends success UNSUBACK when no hook provided", async () => {
+      const { wire, sentPackets } = createWire({ onUnsubscribe: undefined })
+      await connectClient(wire)
+      const initialPackets = sentPackets.length
 
-      const packetsBefore = sentPackets.length
+      const unsubscribe: UnsubscribePacket = {
+        type: PacketType.UNSUBSCRIBE,
+        packetId: 1,
+        topicFilters: ["test/#", "other/+"]
+      }
+      await receivePacket(wire, unsubscribe)
 
-      // Send a CONNECT packet which triggers protocol error (server should never send CONNECT)
-      const connectPacket = new Uint8Array([
-        0x10,
-        0x0c, // CONNECT, remaining length 12
+      expect(sentPackets.length).toBe(initialPackets + 1) // UNSUBACK sent
+    })
+  })
+
+  describe("UNSUBSCRIBE when not connected", () => {
+    it("ignores UNSUBSCRIBE before connection", async () => {
+      const { wire, sentPackets } = createWire()
+
+      // Manually encode UNSUBSCRIBE and send before connecting
+      const unsubscribe = new Uint8Array([
+        0xa2, // UNSUBSCRIBE
+        0x09, // Remaining length
         0x00,
-        0x04,
-        0x4d,
-        0x51,
-        0x54,
-        0x54, // "MQTT"
-        0x04, // Protocol level 4 (3.1.1)
-        0x02, // Connect flags (clean session)
+        0x01, // Packet ID
         0x00,
-        0x3c, // Keep alive 60
-        0x00,
-        0x00 // Client ID length 0
+        0x05, // Topic filter length
+        0x74,
+        0x65,
+        0x73,
+        0x74,
+        0x2f // "test/"
       ])
-      await wire.receive(connectPacket)
+      await wire.receive(unsubscribe)
 
-      // Should NOT have sent DISCONNECT (3.1.1 doesn't have reason codes)
-      expect(sentPackets.length).toBe(packetsBefore)
-      expect(wire.connectionState).toBe("disconnected")
+      // Should be ignored
+      expect(sentPackets.length).toBe(0)
     })
   })
 
-  // These tests use Vitest fake timer APIs not available in Bun's native test runner
-  describe.skipIf(typeof vi.advanceTimersByTimeAsync !== "function")("keepalive timer", () => {
-    it("sends PINGREQ when no activity", async () => {
-      vi.useFakeTimers()
-      try {
-        const sentPackets: Uint8Array[] = []
-        const wire = new MqttWire(
-          {
-            onSend: async (data) => {
-              sentPackets.push(data)
-              return Promise.resolve()
-            }
-          },
-          { keepAlive: 10 } // 10 second keepalive
-        )
-        await wire.connect({ clientId: "test", keepAlive: 10 })
-        await receivePacket(wire, {
-          type: PacketType.CONNACK,
-          sessionPresent: false,
-          reasonCode: 0x00
-        })
+  describe("SUBSCRIBE when not connected", () => {
+    it("ignores SUBSCRIBE before connection", async () => {
+      const { wire, sentPackets } = createWire()
 
-        const packetsAfterConnect = sentPackets.length
+      // Manually encode SUBSCRIBE and send before connecting
+      const subscribe = new Uint8Array([
+        0x82, // SUBSCRIBE
+        0x0a, // Remaining length
+        0x00,
+        0x01, // Packet ID
+        0x00,
+        0x05, // Topic filter length
+        0x74,
+        0x65,
+        0x73,
+        0x74,
+        0x2f, // "test/"
+        0x01 // QoS 1
+      ])
+      await wire.receive(subscribe)
 
-        // Advance time past keepalive interval check (intervalMs / 2 = 5 seconds first check)
-        await vi.advanceTimersByTimeAsync(5000)
-        // This first check won't trigger ping because not enough time elapsed
-
-        // Advance another 5 seconds (now 10 seconds total - should trigger ping)
-        await vi.advanceTimersByTimeAsync(5000)
-
-        // Should have sent PINGREQ
-        expect(sentPackets.length).toBeGreaterThan(packetsAfterConnect)
-      } finally {
-        vi.useRealTimers()
-      }
-    })
-
-    it("triggers keepalive timeout when no response", async () => {
-      vi.useFakeTimers({ shouldAdvanceTime: true })
-      try {
-        const onError = vi.fn()
-        const wire = new MqttWire(
-          { onSend: vi.fn(), onError },
-          { keepAlive: 10, keepAliveMultiplier: 1.5 }
-        )
-
-        // Set initial time
-        vi.setSystemTime(new Date(0))
-
-        await wire.connect({ clientId: "test", keepAlive: 10 })
-        await receivePacket(wire, {
-          type: PacketType.CONNACK,
-          sessionPresent: false,
-          reasonCode: 0x00
-        })
-
-        // Advance time past 1.5x keepalive (15 seconds)
-        // The wire checks at intervalMs/2 = 5 seconds
-        // At 15+ seconds with no activity, it should trigger timeout
-        vi.setSystemTime(new Date(20000)) // 20 seconds in the future
-        await vi.advanceTimersByTimeAsync(5000) // Trigger timer check
-
-        expect(onError).toHaveBeenCalled()
-        expect(wire.connectionState).toBe("disconnected")
-      } finally {
-        vi.useRealTimers()
-      }
+      // Should be ignored
+      expect(sentPackets.length).toBe(0)
     })
   })
 
-  describe("CONNACK in wrong state", () => {
-    it("handles unexpected CONNACK when already connected", async () => {
-      const onError = vi.fn()
-      const { wire } = createWire({ onError })
-      await wire.connect({ clientId: "test" })
-      await receivePacket(wire, {
-        type: PacketType.CONNACK,
-        sessionPresent: false,
-        reasonCode: 0x00
-      })
+  describe("disconnect() with onDisconnect hook", () => {
+    it("calls onDisconnect hook on server-initiated disconnect", async () => {
+      const onDisconnect = vi.fn()
+      const { wire } = createWire({ onDisconnect })
+      await connectClient(wire)
 
-      // Send another CONNACK when already connected
-      await receivePacket(wire, {
-        type: PacketType.CONNACK,
-        sessionPresent: false,
-        reasonCode: 0x00
-      })
+      await wire.disconnect()
 
-      expect(onError).toHaveBeenCalled()
+      expect(onDisconnect).toHaveBeenCalled()
     })
   })
 
-  describe("session state persistence", () => {
-    async function connectedWire(hooks: Partial<LifecycleHooks> = {}): Promise<{
-      wire: MqttWire
-      sentPackets: Uint8Array[]
-    }> {
+  describe("keepalive disabled", () => {
+    it("accepts keepAlive=0 from client", async () => {
+      const { wire } = createWire()
+
+      await connectClient(wire, { keepAlive: 0 })
+
+      expect(wire.isConnected).toBe(true)
+    })
+  })
+
+  describe("topic alias (server → client)", () => {
+    it("uses topic alias when client supports it", async () => {
       const sentPackets: Uint8Array[] = []
-      const onSend = async (data: Uint8Array): Promise<void> => {
-        await Promise.resolve()
+      const onSend = vi.fn((data: Uint8Array) => {
         sentPackets.push(data)
-      }
-      const wire = new MqttWire({ onSend, ...hooks })
-      await wire.connect({ clientId: "test-client" })
-      await receivePacket(wire, {
-        type: PacketType.CONNACK,
-        sessionPresent: false,
-        reasonCode: 0x00
       })
-      return { wire, sentPackets }
-    }
+      const onConnect = vi.fn(
+        (): ConnackPacket => ({
+          type: PacketType.CONNACK,
+          sessionPresent: false,
+          reasonCode: 0x00
+        })
+      )
+      const wire = new MqttWire(
+        { onSend, onConnect },
+        { topicAliasMaximum: 10 } // Server allows aliases
+      )
 
-    describe("exportSessionState", () => {
-      it("returns null when no client ID", () => {
-        const wire = new MqttWire({ onSend: vi.fn() })
-        expect(wire.exportSessionState()).toBeNull()
-      })
-
-      it("exports session with client ID after connect", async () => {
-        const { wire } = await connectedWire()
-        const state = wire.exportSessionState()
-
-        expect(state).not.toBeNull()
-        expect(state?.clientId).toBe("test-client")
-        expect(state?.outboundFlows).toBeInstanceOf(Map)
-        expect(state?.inboundFlows).toBeInstanceOf(Map)
-        expect(state?.pendingOperations).toBeInstanceOf(Map)
-        expect(state?.subscriptions).toBeInstanceOf(Map)
-      })
-
-      it("exports pending QoS 1 flows", async () => {
-        const { wire } = await connectedWire()
-
-        // Publish QoS 1 without receiving PUBACK
-        await wire.publish("test/topic", new Uint8Array([1, 2, 3]), { qos: 1 })
-
-        const state = wire.exportSessionState()
-        expect(state?.outboundFlows.size).toBe(1)
-
-        const flow = state?.outboundFlows.get(1)
-        expect(flow?.type).toBe("qos1-outbound")
-      })
-
-      it("exports active subscriptions", async () => {
-        const { wire } = await connectedWire()
-
-        await wire.subscribe([{ topicFilter: "test/#", options: { qos: 1 } }])
-
-        // Receive SUBACK
-        const suback: SubackPacket = {
-          type: PacketType.SUBACK,
-          packetId: 1,
-          reasonCodes: [1] // Granted QoS 1
+      // Client connects with topic alias support
+      const connect: ConnectPacket = {
+        type: PacketType.CONNECT,
+        protocolVersion: "5.0",
+        clientId: "test-client",
+        cleanStart: true,
+        keepAlive: 60,
+        properties: {
+          topicAliasMaximum: 10 // Client accepts aliases
         }
-        await receivePacket(wire, suback)
+      }
+      await receivePacket(wire, connect)
 
-        const state = wire.exportSessionState()
-        expect(state?.subscriptions.size).toBe(1)
-        expect(state?.subscriptions.get("test/#")).toBe(1)
-      })
+      // Server sends to same topic twice - second should use alias
+      await wire.publish("test/alias/topic", new Uint8Array([1]))
+      await wire.publish("test/alias/topic", new Uint8Array([2]))
+
+      // Both messages sent
+      expect(sentPackets.length).toBe(3) // CONNACK + 2 PUBLISH
     })
+  })
 
-    describe("restoreSessionState", () => {
-      it("throws when not disconnected", async () => {
-        const { wire } = await connectedWire()
+  describe("SUBSCRIBE without hook", () => {
+    it("grants requested QoS when no hook", async () => {
+      const { wire, sentPackets } = createWire({ onSubscribe: undefined })
+      await connectClient(wire)
+      const initialPackets = sentPackets.length
 
-        const state = wire.exportSessionState()
-        expect(() => {
-          wire.restoreSessionState(state!)
-        }).toThrow("cannot restore session")
-      })
+      const subscribe: SubscribePacket = {
+        type: PacketType.SUBSCRIBE,
+        packetId: 1,
+        subscriptions: [
+          { topicFilter: "test/#", options: { qos: 0 } },
+          { topicFilter: "other/+", options: { qos: 2 } }
+        ]
+      }
+      await receivePacket(wire, subscribe)
 
-      it("restores session state", async () => {
-        const { wire } = await connectedWire()
-
-        // Create some state
-        await wire.publish("test/topic", new Uint8Array([1]), { qos: 1 })
-        await wire.subscribe([{ topicFilter: "test/#", options: { qos: 1 } }])
-        await receivePacket(wire, {
-          type: PacketType.SUBACK,
-          packetId: 2,
-          reasonCodes: [1]
-        } as SubackPacket)
-
-        const state = wire.exportSessionState()
-        await wire.disconnect()
-
-        // Create new wire and restore
-        const wire2 = new MqttWire({ onSend: vi.fn() })
-        wire2.restoreSessionState(state!)
-
-        expect(wire2.hasSessionState()).toBe(true)
-        expect(wire2.getSubscriptions().size).toBe(1)
-      })
-
-      it("does not restore expired session", async () => {
-        const wire = new MqttWire({ onSend: vi.fn() }, { sessionExpiryInterval: 1 })
-        await wire.connect({ clientId: "test" })
-        await receivePacket(wire, {
-          type: PacketType.CONNACK,
-          sessionPresent: false,
-          reasonCode: 0x00
-        })
-
-        // Create some state
-        await wire.publish("test/topic", new Uint8Array([1]), { qos: 1 })
-        const state = wire.exportSessionState()
-        await wire.disconnect()
-
-        // Manually expire the session
-        const expiredState = { ...state!, expiresAt: Date.now() - 1000 }
-
-        // Create new wire and try to restore
-        const wire2 = new MqttWire({ onSend: vi.fn() })
-        wire2.restoreSessionState(expiredState)
-
-        expect(wire2.hasSessionState()).toBe(false)
-      })
+      expect(sentPackets.length).toBe(initialPackets + 1) // SUBACK sent
     })
+  })
 
-    describe("session resumption", () => {
-      it("resends pending QoS 1 messages on session resume", async () => {
-        const sentPackets: Uint8Array[] = []
-        const wire = new MqttWire({
-          async onSend(data): Promise<void> {
-            await Promise.resolve()
-            sentPackets.push(data)
-          }
-        })
+  describe("AUTH packet", () => {
+    it("handles AUTH packet without error", async () => {
+      const { wire } = createWire()
+      await connectClient(wire)
 
-        await wire.connect({ clientId: "test" })
-        await receivePacket(wire, {
-          type: PacketType.CONNACK,
-          sessionPresent: false,
-          reasonCode: 0x00
-        })
+      // AUTH packet - not implemented so should be silently handled
+      const auth = new Uint8Array([0xf0, 0x02, 0x00, 0x00]) // AUTH with success
+      await wire.receive(auth)
 
-        // Publish QoS 1
-        await wire.publish("test/topic", new Uint8Array([1, 2, 3]), { qos: 1 })
-
-        const state = wire.exportSessionState()
-        await wire.disconnect()
-
-        // Create new wire with restored state
-        const sentPackets2: Uint8Array[] = []
-        const wire2 = new MqttWire({
-          async onSend(data): Promise<void> {
-            await Promise.resolve()
-            sentPackets2.push(data)
-          }
-        })
-        wire2.restoreSessionState(state!)
-
-        // Reconnect with cleanStart=false
-        await wire2.connect({ clientId: "test", cleanStart: false })
-        const packetsBeforeConnack = sentPackets2.length
-
-        // Server resumes session
-        await receivePacket(wire2, {
-          type: PacketType.CONNACK,
-          sessionPresent: true,
-          reasonCode: 0x00
-        })
-
-        // Should have resent the PUBLISH with DUP flag
-        expect(sentPackets2.length).toBeGreaterThan(packetsBeforeConnack)
-      })
-
-      it("calls onSessionLost when server does not resume", async () => {
-        const onSessionLost = vi.fn()
-        const wire = new MqttWire({ onSend: vi.fn(), onSessionLost })
-
-        await wire.connect({ clientId: "test" })
-        await receivePacket(wire, {
-          type: PacketType.CONNACK,
-          sessionPresent: false,
-          reasonCode: 0x00
-        })
-
-        // Create some state
-        await wire.subscribe([{ topicFilter: "test/#", options: { qos: 1 } }])
-        await receivePacket(wire, {
-          type: PacketType.SUBACK,
-          packetId: 1,
-          reasonCodes: [1]
-        } as SubackPacket)
-
-        const state = wire.exportSessionState()
-        await wire.disconnect()
-
-        // New wire with restored state
-        const wire2 = new MqttWire({ onSend: vi.fn(), onSessionLost })
-        wire2.restoreSessionState(state!)
-
-        // Connect expecting session resumption
-        await wire2.connect({ clientId: "test", cleanStart: false })
-
-        // Server does NOT have session
-        await receivePacket(wire2, {
-          type: PacketType.CONNACK,
-          sessionPresent: false,
-          reasonCode: 0x00
-        })
-
-        // Hook should be called
-        expect(onSessionLost).toHaveBeenCalled()
-
-        // State should be cleared
-        expect(wire2.hasSessionState()).toBe(false)
-      })
-
-      it("does not call onSessionLost when cleanStart=true", async () => {
-        const onSessionLost = vi.fn()
-        const wire = new MqttWire({ onSend: vi.fn(), onSessionLost })
-
-        await wire.connect({ clientId: "test", cleanStart: true })
-        await receivePacket(wire, {
-          type: PacketType.CONNACK,
-          sessionPresent: false,
-          reasonCode: 0x00
-        })
-
-        expect(onSessionLost).not.toHaveBeenCalled()
-      })
-    })
-
-    describe("hasSessionState", () => {
-      it("returns false for fresh wire", () => {
-        const wire = new MqttWire({ onSend: vi.fn() })
-        expect(wire.hasSessionState()).toBe(false)
-      })
-
-      it("returns true when there are pending QoS flows", async () => {
-        const { wire } = await connectedWire()
-        await wire.publish("test/topic", new Uint8Array([1]), { qos: 1 })
-
-        expect(wire.hasSessionState()).toBe(true)
-      })
-
-      it("returns true when there are active subscriptions", async () => {
-        const { wire } = await connectedWire()
-        await wire.subscribe([{ topicFilter: "test/#", options: { qos: 0 } }])
-        await receivePacket(wire, {
-          type: PacketType.SUBACK,
-          packetId: 1,
-          reasonCodes: [0]
-        } as SubackPacket)
-
-        expect(wire.hasSessionState()).toBe(true)
-      })
-    })
-
-    describe("getSubscriptions", () => {
-      it("returns empty map initially", () => {
-        const wire = new MqttWire({ onSend: vi.fn() })
-        expect(wire.getSubscriptions().size).toBe(0)
-      })
-
-      it("returns active subscriptions", async () => {
-        const { wire } = await connectedWire()
-        await wire.subscribe([
-          { topicFilter: "topic1", options: { qos: 0 } },
-          { topicFilter: "topic2", options: { qos: 1 } }
-        ])
-        await receivePacket(wire, {
-          type: PacketType.SUBACK,
-          packetId: 1,
-          reasonCodes: [0, 1]
-        } as SubackPacket)
-
-        const subs = wire.getSubscriptions()
-        expect(subs.size).toBe(2)
-        expect(subs.get("topic1")).toBe(0)
-        expect(subs.get("topic2")).toBe(1)
-      })
+      // Should not disconnect or error
+      expect(wire.isConnected).toBe(true)
     })
   })
 })

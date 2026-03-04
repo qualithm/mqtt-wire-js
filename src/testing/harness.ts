@@ -1,26 +1,28 @@
 /**
- * Test harness for MqttWire testing.
+ * Test harness for server-side MqttWire testing.
  *
- * Provides utilities for simulating server responses, capturing sent packets,
- * and testing client code that uses MqttWire.
+ * Provides utilities for simulating client connections, sending client packets,
+ * and capturing server responses.
  *
  * @example
  * ```ts
- * import { TestHarness, connack, publish } from "@qualithm/mqtt-wire/testing"
+ * import { TestHarness, connect, publish, subscribe } from "@qualithm/mqtt-wire/testing"
  *
  * const harness = new TestHarness()
  *
- * // Auto-respond to CONNECT with CONNACK
- * harness.onConnect(() => connack().build())
+ * // Simulate client CONNECT
+ * await harness.clientConnect({ clientId: "test-client" })
  *
- * await harness.wire.connect({ clientId: "test" })
- *
- * // Verify sent packets
+ * // Verify server sent CONNACK
  * expect(harness.sentPackets).toHaveLength(1)
- * expect(harness.sentPackets[0].type).toBe(PacketType.CONNECT)
+ * expect(harness.sentPackets[0].type).toBe(PacketType.CONNACK)
  *
- * // Simulate incoming PUBLISH
- * await harness.receive(publish("topic").payload("hello").build())
+ * // Simulate client PUBLISH
+ * await harness.clientPublish("topic", "hello")
+ * expect(harness.hookCalls.onPublish).toHaveLength(1)
+ *
+ * // Server publishes to client
+ * await harness.wire.publish("response/topic", new Uint8Array([1, 2, 3]))
  * ```
  *
  * @packageDocumentation
@@ -33,31 +35,21 @@ import type {
   ConnectPacket,
   DisconnectPacket,
   MqttPacket,
-  PingrespPacket,
-  PubackPacket,
-  PubcompPacket,
   PublishPacket,
-  PubrecPacket,
   PubrelPacket,
   SubackPacket,
   SubscribePacket,
+  Subscription,
   UnsubackPacket,
   UnsubscribePacket
 } from "../packets/types.js"
 import type { LifecycleHooks, MqttWireOptions } from "../state/types.js"
-import type { ProtocolVersion } from "../types.js"
+import type { ProtocolVersion, QoS, ReasonCode } from "../types.js"
 import { MqttWire } from "../wire.js"
 
 // -----------------------------------------------------------------------------
 // Types
 // -----------------------------------------------------------------------------
-
-/**
- * Callback for auto-responding to packets.
- */
-export type PacketResponder<TPacket, TResponse> = (
-  packet: TPacket
-) => TResponse | TResponse[] | null | undefined
 
 /**
  * Recorded sent packet with metadata.
@@ -85,8 +77,8 @@ export type ReceivedPacketRecord = {
  * Options for TestHarness.
  */
 export type TestHarnessOptions = MqttWireOptions & {
-  /** Automatically respond to PINGREQ with PINGRESP */
-  readonly autoPingresp?: boolean
+  /** Default CONNACK to return (if onConnect not customised) */
+  readonly defaultConnack?: ConnackPacket
 }
 
 // -----------------------------------------------------------------------------
@@ -94,69 +86,99 @@ export type TestHarnessOptions = MqttWireOptions & {
 // -----------------------------------------------------------------------------
 
 /**
- * Test harness for MqttWire.
+ * Test harness for server-side MqttWire.
  *
  * Provides utilities for:
- * - Capturing sent packets
- * - Simulating received packets
- * - Auto-responding to specific packet types
+ * - Simulating client packets (CONNECT, PUBLISH, SUBSCRIBE, etc.)
+ * - Capturing server-sent packets
  * - Testing lifecycle hooks
+ * - Server-side publish to client
  */
 export class TestHarness {
   /** The MqttWire instance being tested */
   readonly wire: MqttWire
 
-  /** All packets sent via onSend */
+  /** All packets sent by the server via onSend */
   readonly sentPackets: SentPacketRecord[] = []
 
-  /** All packets received via receive() */
+  /** All packets received from the simulated client */
   readonly receivedPackets: ReceivedPacketRecord[] = []
 
   /** Lifecycle hook call records */
   readonly hookCalls = {
-    onConnect: [] as ConnackPacket[],
+    onConnect: [] as ConnectPacket[],
     onPublish: [] as PublishPacket[],
-    onSubscribe: [] as { request: SubscribePacket; response: SubackPacket }[],
-    onUnsubscribe: [] as { request: UnsubscribePacket; response: UnsubackPacket }[],
+    onSubscribe: [] as SubscribePacket[],
+    onUnsubscribe: [] as UnsubscribePacket[],
     onDisconnect: [] as { packet?: DisconnectPacket; reason?: Error }[],
     onError: [] as Error[]
   }
 
-  /** Protocol version used */
-  readonly version: ProtocolVersion
+  /** Protocol version (set after CONNECT) */
+  private _version: ProtocolVersion = "5.0"
 
-  // Responders
-  private connectResponder?: PacketResponder<ConnectPacket, ConnackPacket>
-  private publishResponder?: PacketResponder<PublishPacket, PubackPacket | PubrecPacket>
-  private pubrelResponder?: PacketResponder<PubrelPacket, PubcompPacket>
-  private subscribeResponder?: PacketResponder<SubscribePacket, SubackPacket>
-  private unsubscribeResponder?: PacketResponder<UnsubscribePacket, UnsubackPacket>
-  private disconnectResponder?: PacketResponder<DisconnectPacket, void>
+  /** Default CONNACK to return */
+  private readonly defaultConnack: ConnackPacket
 
-  private readonly autoPingresp: boolean
+  /** Custom onConnect handler */
+  private customOnConnect?: (packet: ConnectPacket) => ConnackPacket | Promise<ConnackPacket>
+
+  /** Custom onSubscribe handler */
+  private customOnSubscribe?: (packet: SubscribePacket) => SubackPacket | Promise<SubackPacket>
+
+  /** Custom onUnsubscribe handler */
+  private customOnUnsubscribe?: (
+    packet: UnsubscribePacket
+  ) => UnsubackPacket | Promise<UnsubackPacket>
 
   /**
    * Create a new test harness.
    */
   constructor(options: TestHarnessOptions = {}) {
-    this.version = options.protocolVersion ?? "5.0"
-    this.autoPingresp = options.autoPingresp ?? true
+    this.defaultConnack = options.defaultConnack ?? {
+      type: PacketType.CONNACK,
+      sessionPresent: false,
+      reasonCode: 0x00
+    }
 
     const hooks: LifecycleHooks = {
-      onSend: async (data: Uint8Array) => {
-        await this.handleSend(data)
+      onSend: (data: Uint8Array) => {
+        this.handleSend(data)
       },
-      onConnect: (packet) => {
+      onConnect: async (packet) => {
         this.hookCalls.onConnect.push(packet)
+        this._version = packet.protocolVersion
+        if (this.customOnConnect) {
+          return this.customOnConnect(packet)
+        }
+        return this.defaultConnack
       },
       onPublish: (packet) => {
         this.hookCalls.onPublish.push(packet)
       },
-      onSubscribe: (request, response) => {
-        this.hookCalls.onSubscribe.push({ request, response })
+      onSubscribe: async (packet) => {
+        this.hookCalls.onSubscribe.push(packet)
+        if (this.customOnSubscribe) {
+          return this.customOnSubscribe(packet)
+        }
+        // Default: grant requested QoS
+        return {
+          type: PacketType.SUBACK,
+          packetId: packet.packetId,
+          reasonCodes: packet.subscriptions.map((s) => s.options.qos)
+        }
       },
-      onUnsubscribe: (request, response) => {
-        this.hookCalls.onUnsubscribe.push({ request, response })
+      onUnsubscribe: async (packet) => {
+        this.hookCalls.onUnsubscribe.push(packet)
+        if (this.customOnUnsubscribe) {
+          return this.customOnUnsubscribe(packet)
+        }
+        // Default: success for all
+        return {
+          type: PacketType.UNSUBACK,
+          packetId: packet.packetId,
+          reasonCodes: packet.topicFilters.map(() => 0x00 as const)
+        }
       },
       onDisconnect: (packet, reason) => {
         this.hookCalls.onDisconnect.push({ packet, reason })
@@ -170,218 +192,198 @@ export class TestHarness {
   }
 
   // ---------------------------------------------------------------------------
-  // Responder Registration
+  // Configuration
   // ---------------------------------------------------------------------------
 
   /**
-   * Register auto-responder for CONNECT packets.
+   * Get the protocol version (set after CONNECT).
+   */
+  get version(): ProtocolVersion {
+    return this._version
+  }
+
+  /**
+   * Set custom onConnect handler.
    *
    * @example
    * ```ts
-   * harness.onConnect(() => connack().build())
-   * harness.onConnect((connect) =>
-   *   connack()
-   *     .assignedClientId(connect.clientId || "generated")
-   *     .build()
-   * )
+   * harness.setOnConnect((connect) => ({
+   *   type: PacketType.CONNACK,
+   *   sessionPresent: false,
+   *   reasonCode: 0x87 // Reject
+   * }))
    * ```
    */
-  onConnect(responder: PacketResponder<ConnectPacket, ConnackPacket>): this {
-    this.connectResponder = responder
+  setOnConnect(handler: (packet: ConnectPacket) => ConnackPacket | Promise<ConnackPacket>): this {
+    this.customOnConnect = handler
     return this
   }
 
   /**
-   * Register auto-responder for PUBLISH packets (QoS 1/2).
-   *
-   * For QoS 1, return PUBACK. For QoS 2, return PUBREC.
-   *
-   * @example
-   * ```ts
-   * harness.onPublish((pub) =>
-   *   pub.qos === 1
-   *     ? puback(pub.packetId!).build()
-   *     : pubrec(pub.packetId!).build()
-   * )
-   * ```
+   * Set custom onSubscribe handler.
    */
-  onPublish(responder: PacketResponder<PublishPacket, PubackPacket | PubrecPacket>): this {
-    this.publishResponder = responder
+  setOnSubscribe(handler: (packet: SubscribePacket) => SubackPacket | Promise<SubackPacket>): this {
+    this.customOnSubscribe = handler
     return this
   }
 
   /**
-   * Register auto-responder for PUBREL packets (QoS 2).
-   *
-   * @example
-   * ```ts
-   * harness.onPubrel((pubrel) => pubcomp(pubrel.packetId).build())
-   * ```
+   * Set custom onUnsubscribe handler.
    */
-  onPubrel(responder: PacketResponder<PubrelPacket, PubcompPacket>): this {
-    this.pubrelResponder = responder
-    return this
-  }
-
-  /**
-   * Register auto-responder for SUBSCRIBE packets.
-   *
-   * @example
-   * ```ts
-   * harness.onSubscribe((sub) =>
-   *   suback(sub.packetId).granted(...sub.subscriptions.map(s => s.options.qos)).build()
-   * )
-   * ```
-   */
-  onSubscribe(responder: PacketResponder<SubscribePacket, SubackPacket>): this {
-    this.subscribeResponder = responder
-    return this
-  }
-
-  /**
-   * Register auto-responder for UNSUBSCRIBE packets.
-   *
-   * @example
-   * ```ts
-   * harness.onUnsubscribe((unsub) =>
-   *   unsuback(unsub.packetId).success(unsub.topicFilters.length).build()
-   * )
-   * ```
-   */
-  onUnsubscribe(responder: PacketResponder<UnsubscribePacket, UnsubackPacket>): this {
-    this.unsubscribeResponder = responder
-    return this
-  }
-
-  /**
-   * Register callback for DISCONNECT packets (no response needed).
-   *
-   * @example
-   * ```ts
-   * harness.onDisconnect((disconnect) => {
-   *   console.log("Client disconnected:", disconnect?.reasonCode)
-   * })
-   * ```
-   */
-  onDisconnect(responder: PacketResponder<DisconnectPacket, void>): this {
-    this.disconnectResponder = responder
+  setOnUnsubscribe(
+    handler: (packet: UnsubscribePacket) => UnsubackPacket | Promise<UnsubackPacket>
+  ): this {
+    this.customOnUnsubscribe = handler
     return this
   }
 
   // ---------------------------------------------------------------------------
-  // Packet Handling
+  // Client Simulation
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Simulate client sending CONNECT.
+   */
+  async clientConnect(options: Partial<ConnectPacket> = {}): Promise<void> {
+    const connect: ConnectPacket = {
+      type: PacketType.CONNECT,
+      protocolVersion: "5.0",
+      clientId: "test-client",
+      cleanStart: true,
+      keepAlive: 60,
+      ...options
+    }
+    this._version = connect.protocolVersion
+    await this.sendPacket(connect)
+  }
+
+  /**
+   * Simulate client sending PUBLISH.
+   */
+  async clientPublish(
+    topic: string,
+    payload: string | Uint8Array,
+    options: {
+      qos?: QoS
+      retain?: boolean
+      dup?: boolean
+      packetId?: number
+      properties?: PublishPacket["properties"]
+    } = {}
+  ): Promise<void> {
+    const qos = options.qos ?? 0
+    const packetId = qos > 0 ? (options.packetId ?? 1) : undefined
+
+    const publish: PublishPacket = {
+      type: PacketType.PUBLISH,
+      topic,
+      payload: typeof payload === "string" ? new TextEncoder().encode(payload) : payload,
+      qos,
+      retain: options.retain ?? false,
+      dup: options.dup ?? false,
+      packetId,
+      properties: options.properties
+    }
+    await this.sendPacket(publish)
+  }
+
+  /**
+   * Simulate client sending PUBREL (QoS 2 continuation).
+   */
+  async clientPubrel(packetId: number): Promise<void> {
+    const pubrel: PubrelPacket = {
+      type: PacketType.PUBREL,
+      packetId
+    }
+    await this.sendPacket(pubrel)
+  }
+
+  /**
+   * Simulate client sending SUBSCRIBE.
+   */
+  async clientSubscribe(
+    subscriptions: { topicFilter: string; qos?: QoS }[] | string,
+    packetId = 1
+  ): Promise<void> {
+    const subs: Subscription[] =
+      typeof subscriptions === "string"
+        ? [{ topicFilter: subscriptions, options: { qos: 0 } }]
+        : subscriptions.map((s) => ({
+            topicFilter: s.topicFilter,
+            options: { qos: s.qos ?? 0 }
+          }))
+
+    const subscribe: SubscribePacket = {
+      type: PacketType.SUBSCRIBE,
+      packetId,
+      subscriptions: subs
+    }
+    await this.sendPacket(subscribe)
+  }
+
+  /**
+   * Simulate client sending UNSUBSCRIBE.
+   */
+  async clientUnsubscribe(topicFilters: string[] | string, packetId = 1): Promise<void> {
+    const filters = typeof topicFilters === "string" ? [topicFilters] : topicFilters
+
+    const unsubscribe: UnsubscribePacket = {
+      type: PacketType.UNSUBSCRIBE,
+      packetId,
+      topicFilters: filters
+    }
+    await this.sendPacket(unsubscribe)
+  }
+
+  /**
+   * Simulate client sending PINGREQ.
+   */
+  async clientPing(): Promise<void> {
+    await this.sendPacket({ type: PacketType.PINGREQ })
+  }
+
+  /**
+   * Simulate client sending DISCONNECT.
+   */
+  async clientDisconnect(reasonCode: ReasonCode = 0x00): Promise<void> {
+    const disconnect: DisconnectPacket = {
+      type: PacketType.DISCONNECT,
+      reasonCode
+    }
+    await this.sendPacket(disconnect)
+  }
+
+  /**
+   * Send a raw packet to the wire.
+   */
+  async sendPacket(packet: MqttPacket): Promise<void> {
+    this.receivedPackets.push({ packet, timestamp: Date.now() })
+    const data = encodePacket(packet, this._version)
+    await this.wire.receive(data)
+  }
+
+  /**
+   * Send raw bytes to the wire.
+   */
+  async sendBytes(data: Uint8Array): Promise<void> {
+    await this.wire.receive(data)
+  }
+
+  // ---------------------------------------------------------------------------
+  // Packet Capture
   // ---------------------------------------------------------------------------
 
   /**
    * Handle outgoing packet (from wire.onSend).
    */
-  private async handleSend(data: Uint8Array): Promise<void> {
+  private handleSend(data: Uint8Array): void {
     const timestamp = Date.now()
 
     // Decode the packet
-    const result = decodePacket(data, this.version, 0)
+    const result = decodePacket(data, this._version, 0)
     const packet = result.ok ? result.value.packet : null
 
     this.sentPackets.push({ bytes: data, packet, timestamp })
-
-    // Auto-respond based on packet type
-    if (packet) {
-      await this.autoRespond(packet)
-    }
-  }
-
-  /**
-   * Normalize a responder result to an array of packets.
-   */
-  private normalizeResponse<T extends MqttPacket>(
-    response: T | T[] | null | undefined
-  ): MqttPacket[] {
-    if (response === null || response === undefined) {
-      return []
-    }
-    return Array.isArray(response) ? response : [response]
-  }
-
-  /**
-   * Auto-respond to a packet based on registered responders.
-   */
-  private async autoRespond(packet: MqttPacket): Promise<void> {
-    const responses = this.getAutoResponses(packet)
-
-    // Send responses
-    for (const response of responses) {
-      await this.receive(response)
-    }
-  }
-
-  /**
-   * Get auto-responses for a packet based on type and registered responders.
-   * Complexity is inherent - handling 15 MQTT packet types.
-   */
-  // eslint-disable-next-line complexity
-  private getAutoResponses(packet: MqttPacket): MqttPacket[] {
-    switch (packet.type) {
-      case PacketType.CONNECT:
-        return this.normalizeResponse(this.connectResponder?.(packet))
-
-      case PacketType.PUBLISH:
-        if (packet.qos > 0 && this.publishResponder) {
-          return this.normalizeResponse(this.publishResponder(packet))
-        }
-        return []
-
-      case PacketType.PUBREL:
-        return this.normalizeResponse(this.pubrelResponder?.(packet))
-
-      case PacketType.SUBSCRIBE:
-        return this.normalizeResponse(this.subscribeResponder?.(packet))
-
-      case PacketType.UNSUBSCRIBE:
-        return this.normalizeResponse(this.unsubscribeResponder?.(packet))
-
-      case PacketType.PINGREQ:
-        return this.autoPingresp ? [{ type: PacketType.PINGRESP } as PingrespPacket] : []
-
-      case PacketType.DISCONNECT:
-        this.disconnectResponder?.(packet)
-        return []
-
-      // Server->client packet types don't need auto-responses
-      case PacketType.CONNACK:
-      case PacketType.PUBACK:
-      case PacketType.PUBREC:
-      case PacketType.PUBCOMP:
-      case PacketType.SUBACK:
-      case PacketType.UNSUBACK:
-      case PacketType.PINGRESP:
-      case PacketType.AUTH:
-        return []
-    }
-  }
-
-  /**
-   * Simulate receiving a packet from the server.
-   *
-   * @example
-   * ```ts
-   * // Receive a PUBLISH
-   * await harness.receive(publish("topic").payload("hello").build())
-   *
-   * // Receive raw bytes
-   * await harness.receiveBytes(new Uint8Array([...]))
-   * ```
-   */
-  async receive(packet: MqttPacket): Promise<void> {
-    this.receivedPackets.push({ packet, timestamp: Date.now() })
-    const data = encodePacket(packet, this.version)
-    await this.wire.receive(data)
-  }
-
-  /**
-   * Simulate receiving raw bytes from the server.
-   */
-  async receiveBytes(data: Uint8Array): Promise<void> {
-    await this.wire.receive(data)
   }
 
   // ---------------------------------------------------------------------------
@@ -477,63 +479,10 @@ export class TestHarness {
  * @example
  * ```ts
  * const harness = createTestHarness()
- * await harness.wire.connect({ clientId: "test" })
+ * await harness.clientConnect({ clientId: "test" })
  * expect(harness.wire.isConnected).toBe(true)
  * ```
  */
 export function createTestHarness(options?: TestHarnessOptions): TestHarness {
-  const harness = new TestHarness(options)
-
-  // Default responders for common scenarios
-  harness.onConnect(() => ({
-    type: PacketType.CONNACK,
-    sessionPresent: false,
-    reasonCode: 0x00
-  }))
-
-  return harness
-}
-
-/**
- * Create a test harness with auto-responders for all packet types.
- *
- * Useful for integration-style tests where you want realistic responses.
- */
-export function createFullTestHarness(options?: TestHarnessOptions): TestHarness {
-  const harness = new TestHarness(options)
-
-  harness.onConnect(() => ({
-    type: PacketType.CONNACK,
-    sessionPresent: false,
-    reasonCode: 0x00
-  }))
-
-  harness.onPublish((pub) => {
-    if (pub.qos === 1 && pub.packetId !== undefined) {
-      return { type: PacketType.PUBACK, packetId: pub.packetId }
-    }
-    if (pub.qos === 2 && pub.packetId !== undefined) {
-      return { type: PacketType.PUBREC, packetId: pub.packetId }
-    }
-    return undefined
-  })
-
-  harness.onPubrel((pubrel) => ({
-    type: PacketType.PUBCOMP,
-    packetId: pubrel.packetId
-  }))
-
-  harness.onSubscribe((sub) => ({
-    type: PacketType.SUBACK,
-    packetId: sub.packetId,
-    reasonCodes: sub.subscriptions.map((s) => s.options.qos)
-  }))
-
-  harness.onUnsubscribe((unsub) => ({
-    type: PacketType.UNSUBACK,
-    packetId: unsub.packetId,
-    reasonCodes: unsub.topicFilters.map(() => 0x00 as const)
-  }))
-
-  return harness
+  return new TestHarness(options)
 }

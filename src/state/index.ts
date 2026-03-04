@@ -16,21 +16,16 @@ export type {
   OnErrorHook,
   OnPublishHook,
   OnSendHook,
-  OnSessionLostHook,
   OnSubscribeHook,
   OnUnsubscribeHook,
   OutboundFlow,
-  PendingOperation,
-  PendingSubscribe,
-  PendingUnsubscribe,
   QoS1InboundFlow,
   QoS1OutboundFlow,
   QoS2InboundFlow,
   QoS2InboundState,
   QoS2OutboundFlow,
   QoS2OutboundState,
-  QoSFlow,
-  SessionState
+  QoSFlow
 } from "./types.js"
 export { DEFAULT_WIRE_OPTIONS } from "./types.js"
 

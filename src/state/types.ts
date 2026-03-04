@@ -1,16 +1,16 @@
 /**
- * State machine types for MQTT connection management.
+ * State machine types for MQTT connection management (server-side).
  *
  * @packageDocumentation
  */
 
 import type {
   ConnackPacket,
+  ConnectPacket,
   DisconnectPacket,
   PublishPacket,
   SubackPacket,
   SubscribePacket,
-  Subscription,
   UnsubackPacket,
   UnsubscribePacket
 } from "../packets/types.js"
@@ -21,15 +21,14 @@ import type { ReasonCode } from "../types.js"
 // -----------------------------------------------------------------------------
 
 /**
- * Connection state machine states.
+ * Connection state machine states (server-side).
  *
  * @see MQTT 5.0 §4.1
  */
 export type ConnectionState =
-  | "disconnected" // Not connected, no session
-  | "connecting" // CONNECT sent, awaiting CONNACK
-  | "connected" // CONNACK received, session active
-  | "disconnecting" // DISCONNECT sent, awaiting close
+  | "awaiting-connect" // Waiting for client CONNECT
+  | "connected" // CONNACK sent, session active
+  | "disconnected" // Connection closed
 
 /**
  * Connection state change event.
@@ -46,9 +45,9 @@ export type ConnectionStateChange = {
 // -----------------------------------------------------------------------------
 
 /**
- * QoS 1 outbound flow state.
+ * QoS 1 outbound flow state (server → client).
  *
- * Client sends PUBLISH → awaits PUBACK.
+ * Server sends PUBLISH → awaits PUBACK from client.
  */
 export type QoS1OutboundFlow = {
   readonly type: "qos1-outbound"
@@ -59,9 +58,9 @@ export type QoS1OutboundFlow = {
 }
 
 /**
- * QoS 1 inbound flow state.
+ * QoS 1 inbound flow state (client → server).
  *
- * Client receives PUBLISH → sends PUBACK.
+ * Server receives PUBLISH → sends PUBACK to client.
  */
 export type QoS1InboundFlow = {
   readonly type: "qos1-inbound"
@@ -71,9 +70,9 @@ export type QoS1InboundFlow = {
 }
 
 /**
- * QoS 2 outbound flow states.
+ * QoS 2 outbound flow states (server → client).
  *
- * Client sends PUBLISH → awaits PUBREC → sends PUBREL → awaits PUBCOMP.
+ * Server sends PUBLISH → awaits PUBREC → sends PUBREL → awaits PUBCOMP.
  */
 export type QoS2OutboundState =
   | "awaiting-pubrec" // PUBLISH sent, awaiting PUBREC
@@ -89,9 +88,9 @@ export type QoS2OutboundFlow = {
 }
 
 /**
- * QoS 2 inbound flow states.
+ * QoS 2 inbound flow states (client → server).
  *
- * Client receives PUBLISH → sends PUBREC → awaits PUBREL → sends PUBCOMP.
+ * Server receives PUBLISH → sends PUBREC → awaits PUBREL → sends PUBCOMP.
  */
 export type QoS2InboundState = "awaiting-pubrel" // PUBREC sent, awaiting PUBREL
 
@@ -109,105 +108,58 @@ export type QoS2InboundFlow = {
 export type QoSFlow = QoS1OutboundFlow | QoS1InboundFlow | QoS2OutboundFlow | QoS2InboundFlow
 
 /**
- * Outbound flows (client → server).
+ * Outbound flows (server → client).
  */
 export type OutboundFlow = QoS1OutboundFlow | QoS2OutboundFlow
 
 /**
- * Inbound flows (server → client).
+ * Inbound flows (client → server).
  */
 export type InboundFlow = QoS1InboundFlow | QoS2InboundFlow
 
 // -----------------------------------------------------------------------------
-// Pending Operations
+// Lifecycle Hooks (Server-Side)
 // -----------------------------------------------------------------------------
 
 /**
- * Pending SUBSCRIBE operation.
- */
-export type PendingSubscribe = {
-  readonly type: "subscribe"
-  readonly packetId: number
-  readonly subscriptions: readonly Subscription[]
-  readonly sentAt: number
-}
-
-/**
- * Pending UNSUBSCRIBE operation.
- */
-export type PendingUnsubscribe = {
-  readonly type: "unsubscribe"
-  readonly packetId: number
-  readonly topicFilters: readonly string[]
-  readonly sentAt: number
-}
-
-/**
- * Any pending operation awaiting acknowledgement.
- */
-export type PendingOperation = PendingSubscribe | PendingUnsubscribe
-
-// -----------------------------------------------------------------------------
-// Session State
-// -----------------------------------------------------------------------------
-
-/**
- * Session state persisted across connections (MQTT 5.0 §4.1).
+ * Hook called when client sends CONNECT.
  *
- * When cleanStart=false, this state is preserved.
+ * Validates the connection request and returns CONNACK.
+ * Throw an error to reject the connection.
  */
-export type SessionState = {
-  /** Client identifier */
-  readonly clientId: string
-  /** Outbound QoS flows waiting for acknowledgement */
-  readonly outboundFlows: Map<number, OutboundFlow>
-  /** Inbound QoS 2 flows waiting for completion */
-  readonly inboundFlows: Map<number, QoS2InboundFlow>
-  /** Pending SUBSCRIBE/UNSUBSCRIBE operations */
-  readonly pendingOperations: Map<number, PendingOperation>
-  /** Active subscriptions (topic filter → granted QoS) */
-  readonly subscriptions: Map<string, number>
-  /** Session expiry timestamp (0 = never) */
-  readonly expiresAt: number
-}
-
-// -----------------------------------------------------------------------------
-// Lifecycle Hooks
-// -----------------------------------------------------------------------------
+export type OnConnectHook = (packet: ConnectPacket) => ConnackPacket | Promise<ConnackPacket>
 
 /**
- * Hook called when connection is established.
- */
-export type OnConnectHook = (packet: ConnackPacket) => void | Promise<void>
-
-/**
- * Hook called when a PUBLISH is received.
+ * Hook called when client sends PUBLISH.
+ *
+ * QoS acknowledgements (PUBACK, PUBREC) are handled automatically.
+ * The packet's topic is already resolved from topic alias if applicable.
  */
 export type OnPublishHook = (packet: PublishPacket) => void | Promise<void>
 
 /**
- * Hook called when SUBSCRIBE is acknowledged.
+ * Hook called when client sends SUBSCRIBE.
+ *
+ * Returns SUBACK with granted QoS or failure codes.
  */
-export type OnSubscribeHook = (
-  request: SubscribePacket,
-  response: SubackPacket
-) => void | Promise<void>
+export type OnSubscribeHook = (packet: SubscribePacket) => SubackPacket | Promise<SubackPacket>
 
 /**
- * Hook called when UNSUBSCRIBE is acknowledged.
+ * Hook called when client sends UNSUBSCRIBE.
+ *
+ * Returns UNSUBACK with success/failure codes.
  */
 export type OnUnsubscribeHook = (
-  request: UnsubscribePacket,
-  response: UnsubackPacket
-) => void | Promise<void>
+  packet: UnsubscribePacket
+) => UnsubackPacket | Promise<UnsubackPacket>
 
 /**
- * Hook called when connection is closed.
+ * Hook called when client disconnects or connection is lost.
  */
 export type OnDisconnectHook = (packet?: DisconnectPacket, reason?: Error) => void | Promise<void>
 
 /**
- * Hook called when packet is ready to send.
+ * Hook called when packet is ready to send to client.
  */
 export type OnSendHook = (data: Uint8Array) => void | Promise<void>
 
@@ -217,34 +169,23 @@ export type OnSendHook = (data: Uint8Array) => void | Promise<void>
 export type OnErrorHook = (error: Error) => void
 
 /**
- * Hook called when session state is lost.
- *
- * Called when the client reconnects expecting session resumption (cleanStart=false)
- * but the server indicates no session exists (sessionPresent=false). This gives
- * the application a chance to re-subscribe and handle lost state.
- */
-export type OnSessionLostHook = () => void | Promise<void>
-
-/**
- * All lifecycle hooks.
+ * All lifecycle hooks (server-side).
  */
 export type LifecycleHooks = {
-  /** Called when connection established (CONNACK received) */
-  onConnect?: OnConnectHook
-  /** Called when PUBLISH received */
+  /** Called when client sends CONNECT; return CONNACK */
+  onConnect: OnConnectHook
+  /** Called when client sends PUBLISH */
   onPublish?: OnPublishHook
-  /** Called when SUBACK received */
+  /** Called when client sends SUBSCRIBE; return SUBACK */
   onSubscribe?: OnSubscribeHook
-  /** Called when UNSUBACK received */
+  /** Called when client sends UNSUBSCRIBE; return UNSUBACK */
   onUnsubscribe?: OnUnsubscribeHook
   /** Called when connection closed */
   onDisconnect?: OnDisconnectHook
-  /** Called when packet ready to send (required) */
+  /** Called when packet ready to send to client (required) */
   onSend: OnSendHook
   /** Called on protocol errors */
   onError?: OnErrorHook
-  /** Called when session state is lost on reconnect */
-  onSessionLost?: OnSessionLostHook
 }
 
 // -----------------------------------------------------------------------------
@@ -252,25 +193,15 @@ export type LifecycleHooks = {
 // -----------------------------------------------------------------------------
 
 /**
- * Options for MqttWire.
+ * Options for MqttWire (server-side).
  */
 export type MqttWireOptions = {
-  /** MQTT protocol version */
-  readonly protocolVersion?: "3.1.1" | "5.0"
-  /** Receive maximum (max inflight QoS > 0 messages) */
-  readonly receiveMaximum?: number
-  /** Maximum packet size */
+  /** Maximum packet size to accept */
   readonly maximumPacketSize?: number
   /** Topic alias maximum (client → server) */
   readonly topicAliasMaximum?: number
-  /** Session expiry interval (seconds, 0 = on disconnect) */
-  readonly sessionExpiryInterval?: number
-  /** Keepalive interval (seconds, 0 = disabled) */
-  readonly keepAlive?: number
   /** Keepalive timeout multiplier (default 1.5 per spec) */
   readonly keepAliveMultiplier?: number
-  /** Auto-reconnect on disconnect */
-  readonly autoReconnect?: boolean
   /** Retry interval for unacknowledged QoS messages (ms) */
   readonly retryInterval?: number
   /** Maximum retry count before giving up */
@@ -280,17 +211,10 @@ export type MqttWireOptions = {
 /**
  * Default options.
  */
-export const DEFAULT_WIRE_OPTIONS: Required<Omit<MqttWireOptions, "protocolVersion">> & {
-  protocolVersion: "5.0"
-} = {
-  protocolVersion: "5.0",
-  receiveMaximum: 65535,
+export const DEFAULT_WIRE_OPTIONS: Required<MqttWireOptions> = {
   maximumPacketSize: 268435455, // MAX_VARIABLE_BYTE_INTEGER
   topicAliasMaximum: 0,
-  sessionExpiryInterval: 0,
-  keepAlive: 60,
   keepAliveMultiplier: 1.5,
-  autoReconnect: false,
   retryInterval: 5000,
   maxRetries: 3
 }

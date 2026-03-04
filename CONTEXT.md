@@ -189,15 +189,15 @@ work.
 
 **Exit:** Subpath imports work; conformance blocks merge on failure; docs generate.
 
-### Server-Side Refactor
+### Server-Side Refactor ✓
 
-- [ ] Refactor `MqttWire` class from client-side to server-side (receives CONNECT, sends CONNACK)
-- [ ] Remove client-only methods (`connect()`, `publish()`, `subscribe()`)
-- [ ] Add server hooks: `onConnect` receives ConnectPacket, returns ConnackPacket
-- [ ] Update tests for server-side behaviour
-- [ ] Update exports and documentation
+- [x] Refactor `MqttWire` class from client-side to server-side (receives CONNECT, sends CONNACK)
+- [x] Remove client-only methods (`connect()`, `subscribe()`, `unsubscribe()`)
+- [x] Add server hooks: `onConnect` receives ConnectPacket, returns ConnackPacket
+- [x] Update tests for server-side behaviour
+- [x] Update exports and documentation
 
-**Exit:** MqttWire handles incoming client connections; no client-initiating code remains.
+**Exit:** ✓ MqttWire handles incoming client connections; no client-initiating code remains.
 
 ---
 
@@ -210,3 +210,4 @@ work.
 | 2025-07-16 | StreamFramer.push() must preserve unconsumed buffer data when new chunks arrive |
 | 2026-03-03 | MqttWire setInterval keepalive must use void/catch pattern, not async callback  |
 | 2026-03-05 | Library is server-only; MqttWire was incorrectly designed as client-side        |
+| 2026-03-05 | Server-side MqttWire: hooks return response packets (onConnect→ConnackPacket)   |
