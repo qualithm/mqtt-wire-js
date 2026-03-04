@@ -7,19 +7,20 @@
 
 ## System Intent
 
-MQTT protocol codec and connection state machine for JavaScript and TypeScript runtimes. Parses
-bytes into typed packets, encodes packets into bytes, and manages per-connection protocol state.
+Server-side MQTT protocol codec and connection state machine for JavaScript and TypeScript runtimes.
+Accepts connections from MQTT clients, parses bytes into typed packets, encodes packets into bytes,
+and manages per-connection protocol state.
 
 **Key capabilities:**
 
 - Packet codec (all 15 MQTT packet types, 3.1.1 and 5.0)
-- QoS 0/1/2 flows (PUBACK, PUBREC/PUBREL/PUBCOMP)
+- Server-side QoS 0/1/2 flow handling
 - Keepalive tracking, topic aliases, receive maximum (5.0)
 - Lifecycle hooks (`onConnect`, `onPublish`, `onSubscribe`, `onDisconnect`, etc.)
 - Bun, Node.js, and Deno runtime support
 
-**Scope:** Protocol layer only; excludes TCP/WebSocket servers, message routing, subscription
-storage, session persistence, and will message publishing.
+**Scope:** Server-side protocol layer only; excludes TCP/WebSocket servers, message routing,
+subscription storage, session persistence, will message publishing, and client-side functionality.
 
 ---
 
@@ -116,6 +117,8 @@ storage, session persistence, and will message publishing.
 14. **Spec compliance via fixtures** — Test against packet examples from MQTT 3.1.1 and 5.0 specs
     (§3.x hex examples); supplement with edge-case corpus (max sizes, all property types, malformed
     inputs); no broker matrix required
+15. **Server-only** — Library handles incoming client connections; no client-side functionality.
+    MQTT client libraries already exist (mqtt.js, etc.)
 
 ---
 
@@ -128,12 +131,12 @@ storage, session persistence, and will message publishing.
 
 ### Risks
 
-| ID  | Risk                          | Impact                                           | Mitigation                                                      |
-| --- | ----------------------------- | ------------------------------------------------ | --------------------------------------------------------------- |
-| R-1 | Spec ambiguity (3.1.1 vs 5.0) | Interop failures with edge-case brokers          | Test against Mosquitto, EMQX, HiveMQ; document deviations       |
-| R-2 | Partial packet at boundaries  | Data corruption or hangs if framing logic flawed | Extensive fast-check property tests with arbitrary chunk splits |
-| R-3 | Unbounded in-flight tracking  | Memory exhaustion under load                     | Enforce receive maximum; expose metrics; document backpressure  |
-| R-4 | Malformed packet exploits     | DoS via crafted packets                          | fast-check mutation fuzzing; strict bounds checking in reader   |
+| ID  | Risk                          | Impact                                           | Mitigation                                                             |
+| --- | ----------------------------- | ------------------------------------------------ | ---------------------------------------------------------------------- |
+| R-1 | Spec ambiguity (3.1.1 vs 5.0) | Interop failures with edge-case clients          | Test against mosquitto CLI, mqtt.js, Paho clients; document deviations |
+| R-2 | Partial packet at boundaries  | Data corruption or hangs if framing logic flawed | Extensive fast-check property tests with arbitrary chunk splits        |
+| R-3 | Unbounded in-flight tracking  | Memory exhaustion under load                     | Enforce receive maximum; expose metrics; document backpressure         |
+| R-4 | Malformed packet exploits     | DoS via crafted packets                          | fast-check mutation fuzzing; strict bounds checking in reader          |
 
 ---
 
@@ -180,11 +183,21 @@ work.
 ### Infrastructure
 
 - [x] `mqtt-wire/testing` subpath: test harness, packet builder, fuzzer, fixtures
-- [ ] Examples: Bun/Node/Deno TCP, WebSocket
-- [ ] Conformance CI against Mosquitto 2.x, EMQX 5.x
+- [x] Examples: Bun/Node/Deno TCP, WebSocket
+- [ ] Conformance CI against MQTT clients (mosquitto CLI, mqtt.js, Paho)
 - [ ] TypeDoc, benchmark suite
 
 **Exit:** Subpath imports work; conformance blocks merge on failure; docs generate.
+
+### Server-Side Refactor
+
+- [ ] Refactor `MqttWire` class from client-side to server-side (receives CONNECT, sends CONNACK)
+- [ ] Remove client-only methods (`connect()`, `publish()`, `subscribe()`)
+- [ ] Add server hooks: `onConnect` receives ConnectPacket, returns ConnackPacket
+- [ ] Update tests for server-side behaviour
+- [ ] Update exports and documentation
+
+**Exit:** MqttWire handles incoming client connections; no client-initiating code remains.
 
 ---
 
@@ -196,3 +209,4 @@ work.
 | ---------- | ------------------------------------------------------------------------------- |
 | 2025-07-16 | StreamFramer.push() must preserve unconsumed buffer data when new chunks arrive |
 | 2026-03-03 | MqttWire setInterval keepalive must use void/catch pattern, not async callback  |
+| 2026-03-05 | Library is server-only; MqttWire was incorrectly designed as client-side        |
