@@ -66,27 +66,27 @@ storage, session persistence, and will message publishing.
 
 ### Features
 
-| Feature            | Status      | Notes                              |
-| ------------------ | ----------- | ---------------------------------- |
-| Core primitives    | Complete    | DecodeResult, QoS, types           |
-| Protocol constants | Complete    | Packet types, properties           |
-| Variable byte int  | Complete    | §2.2.3 test vectors pass           |
-| UTF-8 validation   | Complete    | §1.5.4 malformed rejected          |
-| Binary reader      | Complete    | Bounds-checked cursor              |
-| Binary writer      | Complete    | Auto-growing, size calc            |
-| Stream framing     | Complete    | Chunk-split tests pass             |
-| Packet encoding    | Complete    | All 15 packet types                |
-| Packet decoding    | Complete    | 5.0 properties, 3.1.1 compat       |
-| QoS handling       | Complete    | QoS 1/2 flow tracking via MqttWire |
-| Keepalive          | Complete    | 1.5x timeout, PINGREQ on idle      |
-| Lifecycle hooks    | Complete    | onConnect, onPublish, onSend, etc  |
-| Topic aliases      | Complete    | MQTT 5.0 bidirectional aliasing    |
-| Packet ID alloc    | Complete    | Sequential with wraparound         |
-| Topic utilities    | Complete    | Validation, matching, shared       |
-| MqttWire class     | Complete    | Connection state machine           |
-| Session state      | Complete    | Export/restore, onSessionLost hook |
-| Will validation    | Complete    | Topic and QoS validation           |
-| Testing utilities  | Not started | Subpath `mqtt-wire/testing`        |
+| Feature            | Status   | Notes                              |
+| ------------------ | -------- | ---------------------------------- |
+| Core primitives    | Complete | DecodeResult, QoS, types           |
+| Protocol constants | Complete | Packet types, properties           |
+| Variable byte int  | Complete | §2.2.3 test vectors pass           |
+| UTF-8 validation   | Complete | §1.5.4 malformed rejected          |
+| Binary reader      | Complete | Bounds-checked cursor              |
+| Binary writer      | Complete | Auto-growing, size calc            |
+| Stream framing     | Complete | Chunk-split tests pass             |
+| Packet encoding    | Complete | All 15 packet types                |
+| Packet decoding    | Complete | 5.0 properties, 3.1.1 compat       |
+| QoS handling       | Complete | QoS 1/2 flow tracking via MqttWire |
+| Keepalive          | Complete | 1.5x timeout, PINGREQ on idle      |
+| Lifecycle hooks    | Complete | onConnect, onPublish, onSend, etc  |
+| Topic aliases      | Complete | MQTT 5.0 bidirectional aliasing    |
+| Packet ID alloc    | Complete | Sequential with wraparound         |
+| Topic utilities    | Complete | Validation, matching, shared       |
+| MqttWire class     | Complete | Connection state machine           |
+| Session state      | Complete | Export/restore, onSessionLost hook |
+| Will validation    | Complete | Topic and QoS validation           |
+| Testing utilities  | Complete | Builders, generators, harness      |
 
 ---
 
@@ -179,7 +179,7 @@ work.
 
 ### Infrastructure
 
-- [ ] `mqtt-wire/testing` subpath: test harness, packet builder, fuzzer, fixtures
+- [x] `mqtt-wire/testing` subpath: test harness, packet builder, fuzzer, fixtures
 - [ ] Examples: Bun/Node/Deno TCP, WebSocket
 - [ ] Conformance CI against Mosquitto 2.x, EMQX 5.x
 - [ ] TypeDoc, benchmark suite
