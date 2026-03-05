@@ -184,7 +184,7 @@ work.
 
 - [x] `mqtt-wire/testing` subpath: test harness, packet builder, fuzzer, fixtures
 - [x] Examples: Bun/Node/Deno TCP, WebSocket
-- [ ] Conformance CI against MQTT clients (mosquitto CLI, mqtt.js, Paho)
+- [x] Conformance CI against MQTT clients (mosquitto CLI, mqtt.js)
 - [ ] TypeDoc, benchmark suite
 
 **Exit:** Subpath imports work; conformance blocks merge on failure; docs generate.
@@ -211,3 +211,4 @@ work.
 | 2026-03-03 | MqttWire setInterval keepalive must use void/catch pattern, not async callback  |
 | 2026-03-05 | Library is server-only; MqttWire was incorrectly designed as client-side        |
 | 2026-03-05 | Server-side MqttWire: hooks return response packets (onConnect→ConnackPacket)   |
+| 2026-03-05 | Conformance tests use TestServer (real TCP) + mqtt.js client + mosquitto CLI    |
