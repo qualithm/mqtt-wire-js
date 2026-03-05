@@ -4,7 +4,9 @@
 [![codecov](https://codecov.io/gh/qualithm/mqtt-wire-js/graph/badge.svg)](https://codecov.io/gh/qualithm/mqtt-wire-js)
 [![npm](https://img.shields.io/npm/v/@qualithm/mqtt-wire)](https://www.npmjs.com/package/@qualithm/mqtt-wire)
 
-MQTT protocol codec and connection state machine for JavaScript and TypeScript runtimes.
+Server-side MQTT protocol codec and connection state machine for JavaScript and TypeScript runtimes.
+Accepts connections from MQTT clients, parses bytes into typed packets, encodes packets into bytes,
+and manages per-connection protocol state.
 
 ## Development
 

@@ -1,5 +1,5 @@
 /**
- * MQTT protocol codec and connection state machine.
+ * Server-side MQTT protocol codec and connection state machine for JavaScript and TypeScript runtimes.
  *
  * @packageDocumentation
  */
