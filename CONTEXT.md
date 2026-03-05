@@ -180,14 +180,15 @@ work.
 
 **Exit:** ✓ Unit tests pass; session export/restore working; will validation enforced.
 
-### Infrastructure
+### Infrastructure ✓
 
 - [x] `mqtt-wire/testing` subpath: test harness, packet builder, fuzzer, fixtures
 - [x] Examples: Bun/Node/Deno TCP, WebSocket
 - [x] Conformance CI against MQTT clients (mosquitto CLI, mqtt.js)
-- [ ] TypeDoc, benchmark suite
+- [x] Benchmark suite: varint, packet encode/decode, topic matching, framing
+- [x] TypeDoc generation (main + testing entry points)
 
-**Exit:** Subpath imports work; conformance blocks merge on failure; docs generate.
+**Exit:** ✓ Subpath imports work; conformance blocks merge on failure; docs generate.
 
 ### Server-Side Refactor ✓
 
@@ -212,3 +213,5 @@ work.
 | 2026-03-05 | Library is server-only; MqttWire was incorrectly designed as client-side        |
 | 2026-03-05 | Server-side MqttWire: hooks return response packets (onConnect→ConnackPacket)   |
 | 2026-03-05 | Conformance tests use TestServer (real TCP) + mqtt.js client + mosquitto CLI    |
+| 2026-03-05 | Removed placeholder greet.ts; benchmark suite measures real codec operations    |
+| 2026-03-05 | TypeDoc needs multiple entry points for subpath exports (index + testing)       |
