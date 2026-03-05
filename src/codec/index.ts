@@ -23,6 +23,8 @@ export {
   encodeMqttString,
   encodeUtf8,
   isValidMqttString,
+  type MqttBinaryDecodeResult,
+  type MqttStringDecodeResult,
   utf8ByteLength,
   validateMqttUtf8
 } from "./utf8.js"

@@ -19,9 +19,24 @@ import { decodeVariableByteInteger, hasCompleteVariableByteInteger } from "./var
  * Result of attempting to read a packet frame from the buffer.
  */
 export type FrameResult =
-  | { status: "complete"; packetData: Uint8Array; bytesConsumed: number }
-  | { status: "incomplete" }
-  | { status: "error"; error: ReturnType<typeof decodeError> }
+  | {
+      /** Frame was successfully extracted. */
+      status: "complete"
+      /** The complete packet data. */
+      packetData: Uint8Array
+      /** Number of bytes consumed from the buffer. */
+      bytesConsumed: number
+    }
+  | {
+      /** More data needed to complete the frame. */
+      status: "incomplete"
+    }
+  | {
+      /** Frame parsing failed with an error. */
+      status: "error"
+      /** The decode error with details. */
+      error: ReturnType<typeof decodeError>
+    }
 
 /**
  * Packet frame information extracted from the fixed header.

@@ -25,8 +25,11 @@ import type { OutboundFlow, QoS1OutboundFlow, QoS2InboundFlow, QoS2OutboundFlow 
  * Result of processing an acknowledgement.
  */
 export type AckResult = {
+  /** Whether the acknowledgement was successfully processed. */
   readonly success: boolean
+  /** The completed flow (if successful). */
   readonly flow?: OutboundFlow
+  /** Error reason (if failed). */
   readonly reason?: string
 }
 

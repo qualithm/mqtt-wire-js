@@ -144,11 +144,25 @@ export {
 } from "./generators.js"
 
 // Test harness
-export type { ReceivedPacketRecord, SentPacketRecord, TestHarnessOptions } from "./harness.js"
+export type {
+  DisconnectRecord,
+  HookCallRecords,
+  ReceivedPacketRecord,
+  SentPacketRecord,
+  TestHarnessOptions
+} from "./harness.js"
 export { createTestHarness, TestHarness } from "./harness.js"
 
+// Generators
+export type { ChunkSplitResult } from "./generators.js"
+
 // Fixtures
-export type { MalformedFixture, PacketFixture } from "./fixtures.js"
+export type {
+  EdgeCaseFixture,
+  FixturesCollection,
+  MalformedFixture,
+  PacketFixture
+} from "./fixtures.js"
 export {
   allValidFixtures,
   connackFixtures,

@@ -784,9 +784,36 @@ export const malformedFixtures: MalformedFixture[] = [
 // -----------------------------------------------------------------------------
 
 /**
+ * Edge case fixture for boundary testing.
+ */
+export type EdgeCaseFixture<T extends MqttPacket = MqttPacket> = {
+  /** Descriptive name. */
+  name: string
+  /** Protocol version. */
+  version: ProtocolVersion
+  /** The packet data. */
+  packet: T
+  /** Expected encoded bytes (optional for some edge cases). */
+  bytes?: Uint8Array
+}
+
+/**
  * Edge case packets for boundary testing.
  */
-export const edgeCaseFixtures = {
+export const edgeCaseFixtures: {
+  /** Maximum packet ID fixture. */
+  maxPacketId: EdgeCaseFixture<PubackPacket>
+  /** Minimum packet ID fixture. */
+  minPacketId: EdgeCaseFixture<PubackPacket>
+  /** Empty client ID fixture. */
+  emptyClientId: EdgeCaseFixture<ConnectPacket>
+  /** Long topic fixture. */
+  longTopic: EdgeCaseFixture<PublishPacket>
+  /** Multi-level wildcard fixture. */
+  multiLevelWildcard: EdgeCaseFixture<SubscribePacket>
+  /** Single-level wildcard fixture. */
+  singleLevelWildcard: EdgeCaseFixture<SubscribePacket>
+} = {
   /** Maximum packet ID */
   maxPacketId: {
     name: "maximum packet ID (65535)",
@@ -866,7 +893,45 @@ export const edgeCaseFixtures = {
 /**
  * All packet fixtures grouped by type.
  */
-export const fixtures = {
+export type FixturesCollection = {
+  /** CONNECT packet fixtures. */
+  connect: PacketFixture<ConnectPacket>[]
+  /** CONNACK packet fixtures. */
+  connack: PacketFixture<ConnackPacket>[]
+  /** PUBLISH packet fixtures. */
+  publish: PacketFixture<PublishPacket>[]
+  /** PUBACK packet fixtures. */
+  puback: PacketFixture<PubackPacket>[]
+  /** PUBREC packet fixtures. */
+  pubrec: PacketFixture<PubrecPacket>[]
+  /** PUBREL packet fixtures. */
+  pubrel: PacketFixture<PubrelPacket>[]
+  /** PUBCOMP packet fixtures. */
+  pubcomp: PacketFixture<PubcompPacket>[]
+  /** SUBSCRIBE packet fixtures. */
+  subscribe: PacketFixture<SubscribePacket>[]
+  /** SUBACK packet fixtures. */
+  suback: PacketFixture<SubackPacket>[]
+  /** UNSUBSCRIBE packet fixtures. */
+  unsubscribe: PacketFixture<UnsubscribePacket>[]
+  /** UNSUBACK packet fixtures. */
+  unsuback: PacketFixture<UnsubackPacket>[]
+  /** PINGREQ packet fixtures. */
+  pingreq: PacketFixture<PingreqPacket>[]
+  /** PINGRESP packet fixtures. */
+  pingresp: PacketFixture<PingrespPacket>[]
+  /** DISCONNECT packet fixtures. */
+  disconnect: PacketFixture<DisconnectPacket>[]
+  /** Malformed packet fixtures. */
+  malformed: MalformedFixture[]
+  /** Edge case fixtures. */
+  edgeCases: typeof edgeCaseFixtures
+}
+
+/**
+ * All packet fixtures grouped by type.
+ */
+export const fixtures: FixturesCollection = {
   connect: connectFixtures,
   connack: connackFixtures,
   publish: publishFixtures,

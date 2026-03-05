@@ -35,6 +35,7 @@ import type {
   ConnectPacket,
   DisconnectPacket,
   MqttPacket,
+  PacketOfType,
   PublishPacket,
   PubrelPacket,
   SubackPacket,
@@ -74,6 +75,34 @@ export type ReceivedPacketRecord = {
 }
 
 /**
+ * Recorded disconnect event.
+ */
+export type DisconnectRecord = {
+  /** The DISCONNECT packet if client sent one. */
+  packet?: DisconnectPacket
+  /** Error reason if disconnect was due to error. */
+  reason?: Error
+}
+
+/**
+ * Lifecycle hook call records.
+ */
+export type HookCallRecords = {
+  /** CONNECT packets received. */
+  onConnect: ConnectPacket[]
+  /** PUBLISH packets received. */
+  onPublish: PublishPacket[]
+  /** SUBSCRIBE packets received. */
+  onSubscribe: SubscribePacket[]
+  /** UNSUBSCRIBE packets received. */
+  onUnsubscribe: UnsubscribePacket[]
+  /** Disconnect events. */
+  onDisconnect: DisconnectRecord[]
+  /** Errors passed to onError hook. */
+  onError: Error[]
+}
+
+/**
  * Options for TestHarness.
  */
 export type TestHarnessOptions = MqttWireOptions & {
@@ -105,13 +134,13 @@ export class TestHarness {
   readonly receivedPackets: ReceivedPacketRecord[] = []
 
   /** Lifecycle hook call records */
-  readonly hookCalls = {
-    onConnect: [] as ConnectPacket[],
-    onPublish: [] as PublishPacket[],
-    onSubscribe: [] as SubscribePacket[],
-    onUnsubscribe: [] as UnsubscribePacket[],
-    onDisconnect: [] as { packet?: DisconnectPacket; reason?: Error }[],
-    onError: [] as Error[]
+  readonly hookCalls: HookCallRecords = {
+    onConnect: [],
+    onPublish: [],
+    onSubscribe: [],
+    onUnsubscribe: [],
+    onDisconnect: [],
+    onError: []
   }
 
   /** Protocol version (set after CONNECT) */
@@ -393,10 +422,10 @@ export class TestHarness {
   /**
    * Get all sent packets of a specific type.
    */
-  getSentPacketsOfType<T extends MqttPacket["type"]>(type: T): Extract<MqttPacket, { type: T }>[] {
+  getSentPacketsOfType<T extends PacketType>(type: T): PacketOfType<T>[] {
     return this.sentPackets
       .filter((r) => r.packet?.type === type)
-      .map((r) => r.packet as Extract<MqttPacket, { type: T }>)
+      .map((r) => r.packet as PacketOfType<T>)
   }
 
   /**
@@ -409,13 +438,11 @@ export class TestHarness {
   /**
    * Get the last sent packet of a specific type.
    */
-  lastSentPacketOfType<T extends MqttPacket["type"]>(
-    type: T
-  ): Extract<MqttPacket, { type: T }> | undefined {
+  lastSentPacketOfType<T extends PacketType>(type: T): PacketOfType<T> | undefined {
     for (let i = this.sentPackets.length - 1; i >= 0; i--) {
       const { packet } = this.sentPackets[i]
       if (packet?.type === type) {
-        return packet as Extract<MqttPacket, { type: T }>
+        return packet as PacketOfType<T>
       }
     }
     return undefined

@@ -14,6 +14,30 @@
 import { decodeError, type DecodeResult, err, ok } from "../types.js"
 
 // -----------------------------------------------------------------------------
+// Types
+// -----------------------------------------------------------------------------
+
+/**
+ * Result of decoding an MQTT string.
+ */
+export type MqttStringDecodeResult = {
+  /** The decoded string value. */
+  value: string
+  /** Number of bytes consumed from the buffer. */
+  bytesRead: number
+}
+
+/**
+ * Result of decoding MQTT binary data.
+ */
+export type MqttBinaryDecodeResult = {
+  /** The decoded binary data. */
+  value: Uint8Array
+  /** Number of bytes consumed from the buffer. */
+  bytesRead: number
+}
+
+// -----------------------------------------------------------------------------
 // Text Encoder/Decoder
 // -----------------------------------------------------------------------------
 
@@ -184,7 +208,7 @@ export function decodeUtf8(bytes: Uint8Array): DecodeResult<string> {
 export function decodeMqttString(
   buffer: Uint8Array,
   offset: number
-): DecodeResult<{ value: string; bytesRead: number }> {
+): DecodeResult<MqttStringDecodeResult> {
   // Need at least 2 bytes for the length prefix
   if (offset + 2 > buffer.length) {
     return err(decodeError("INCOMPLETE", "not enough bytes for string length", "§1.5.4"))
@@ -252,7 +276,7 @@ export function encodeMqttString(str: string): Uint8Array {
 export function decodeMqttBinary(
   buffer: Uint8Array,
   offset: number
-): DecodeResult<{ value: Uint8Array; bytesRead: number }> {
+): DecodeResult<MqttBinaryDecodeResult> {
   // Need at least 2 bytes for the length prefix
   if (offset + 2 > buffer.length) {
     return err(decodeError("INCOMPLETE", "not enough bytes for binary length"))

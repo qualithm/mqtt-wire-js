@@ -33,6 +33,7 @@ export { DEFAULT_WIRE_OPTIONS } from "./types.js"
 export { PacketIdAllocator, PacketIdExhaustedError } from "./packet-id.js"
 
 // Topic aliases
+export type { OutboundAliasResult } from "./topic-alias.js"
 export { TopicAliasError, TopicAliasManager, TopicAliasMap } from "./topic-alias.js"
 
 // QoS flow tracking

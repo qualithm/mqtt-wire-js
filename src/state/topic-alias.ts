@@ -12,6 +12,7 @@
  * Error thrown when topic alias is invalid.
  */
 export class TopicAliasError extends Error {
+  /** The invalid topic alias value. */
   readonly alias: number
 
   constructor(alias: number, message: string) {
@@ -133,6 +134,16 @@ export class TopicAliasMap {
 }
 
 /**
+ * Result of getting or assigning an outbound topic alias.
+ */
+export type OutboundAliasResult = {
+  /** The topic alias (1 to maximum). */
+  alias: number
+  /** True if topic must be sent with the alias (first use). */
+  sendTopic: boolean
+}
+
+/**
  * Manages topic aliases for both directions (outbound and inbound).
  *
  * - Outbound aliases: Client assigns aliases when publishing to server
@@ -208,7 +219,7 @@ export class TopicAliasManager {
    * @param topic - Topic to get/assign alias for
    * @returns Object with alias and whether topic should be sent
    */
-  getOrAssignOutbound(topic: string): { alias: number; sendTopic: boolean } | undefined {
+  getOrAssignOutbound(topic: string): OutboundAliasResult | undefined {
     const maximum = this.outbound.getMaximum()
     if (maximum === 0) {
       return undefined

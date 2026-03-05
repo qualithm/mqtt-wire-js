@@ -117,6 +117,7 @@ export type ConnectProperties = {
  * @see MQTT 5.0 §3.1
  */
 export type ConnectPacket = {
+  /** Packet type discriminator. */
   readonly type: typeof PacketType.CONNECT
   /** Protocol version */
   readonly protocolVersion: ProtocolVersion
@@ -186,6 +187,7 @@ export type ConnackProperties = {
  * @see MQTT 5.0 §3.2
  */
 export type ConnackPacket = {
+  /** Packet type discriminator. */
   readonly type: typeof PacketType.CONNACK
   /** Session present flag */
   readonly sessionPresent: boolean
@@ -227,6 +229,7 @@ export type PublishProperties = {
  * @see MQTT 5.0 §3.3
  */
 export type PublishPacket = {
+  /** Packet type discriminator. */
   readonly type: typeof PacketType.PUBLISH
   /** Topic name */
   readonly topic: string
@@ -264,6 +267,7 @@ export type PubAckProperties = {
  * @see MQTT 5.0 §3.4
  */
 export type PubackPacket = {
+  /** Packet type discriminator. */
   readonly type: typeof PacketType.PUBACK
   /** Packet identifier */
   readonly packetId: number
@@ -283,6 +287,7 @@ export type PubackPacket = {
  * @see MQTT 5.0 §3.5
  */
 export type PubrecPacket = {
+  /** Packet type discriminator. */
   readonly type: typeof PacketType.PUBREC
   /** Packet identifier */
   readonly packetId: number
@@ -302,6 +307,7 @@ export type PubrecPacket = {
  * @see MQTT 5.0 §3.6
  */
 export type PubrelPacket = {
+  /** Packet type discriminator. */
   readonly type: typeof PacketType.PUBREL
   /** Packet identifier */
   readonly packetId: number
@@ -321,6 +327,7 @@ export type PubrelPacket = {
  * @see MQTT 5.0 §3.7
  */
 export type PubcompPacket = {
+  /** Packet type discriminator. */
   readonly type: typeof PacketType.PUBCOMP
   /** Packet identifier */
   readonly packetId: number
@@ -350,6 +357,7 @@ export type SubscribeProperties = {
  * @see MQTT 5.0 §3.8
  */
 export type SubscribePacket = {
+  /** Packet type discriminator. */
   readonly type: typeof PacketType.SUBSCRIBE
   /** Packet identifier */
   readonly packetId: number
@@ -379,6 +387,7 @@ export type SubackProperties = {
  * @see MQTT 5.0 §3.9
  */
 export type SubackPacket = {
+  /** Packet type discriminator. */
   readonly type: typeof PacketType.SUBACK
   /** Packet identifier */
   readonly packetId: number
@@ -406,6 +415,7 @@ export type UnsubscribeProperties = {
  * @see MQTT 5.0 §3.10
  */
 export type UnsubscribePacket = {
+  /** Packet type discriminator. */
   readonly type: typeof PacketType.UNSUBSCRIBE
   /** Packet identifier */
   readonly packetId: number
@@ -435,6 +445,7 @@ export type UnsubackProperties = {
  * @see MQTT 5.0 §3.11
  */
 export type UnsubackPacket = {
+  /** Packet type discriminator. */
   readonly type: typeof PacketType.UNSUBACK
   /** Packet identifier */
   readonly packetId: number
@@ -454,6 +465,7 @@ export type UnsubackPacket = {
  * @see MQTT 5.0 §3.12
  */
 export type PingreqPacket = {
+  /** Packet type discriminator. */
   readonly type: typeof PacketType.PINGREQ
 }
 
@@ -467,6 +479,7 @@ export type PingreqPacket = {
  * @see MQTT 5.0 §3.13
  */
 export type PingrespPacket = {
+  /** Packet type discriminator. */
   readonly type: typeof PacketType.PINGRESP
 }
 
@@ -494,6 +507,7 @@ export type DisconnectProperties = {
  * @see MQTT 5.0 §3.14
  */
 export type DisconnectPacket = {
+  /** Packet type discriminator. */
   readonly type: typeof PacketType.DISCONNECT
   /** Reason code (5.0, defaults to 0x00) */
   readonly reasonCode?: ReasonCode
@@ -525,6 +539,7 @@ export type AuthProperties = {
  * @see MQTT 5.0 §3.15
  */
 export type AuthPacket = {
+  /** Packet type discriminator. */
   readonly type: typeof PacketType.AUTH
   /** Reason code (0x00=success, 0x18=continue, 0x19=re-auth) */
   readonly reasonCode: ReasonCode
@@ -574,5 +589,10 @@ export type MqttPacket =
 
 /**
  * Extract packet type for a given packet type constant.
+ *
+ * @typeParam T - The packet type constant to extract.
  */
-export type PacketOfType<T extends PacketType> = Extract<MqttPacket, { type: T }>
+export type PacketOfType<T extends PacketType> = Extract<
+  MqttPacket,
+  { /** Packet type discriminator. */ type: T }
+>

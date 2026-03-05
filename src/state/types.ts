@@ -34,9 +34,13 @@ export type ConnectionState =
  * Connection state change event.
  */
 export type ConnectionStateChange = {
+  /** Previous connection state. */
   readonly previous: ConnectionState
+  /** Current connection state. */
   readonly current: ConnectionState
+  /** Reason code for the state change. */
   readonly reason?: ReasonCode
+  /** Timestamp when the state change occurred. */
   readonly timestamp: number
 }
 
@@ -50,10 +54,15 @@ export type ConnectionStateChange = {
  * Server sends PUBLISH → awaits PUBACK from client.
  */
 export type QoS1OutboundFlow = {
+  /** Flow type discriminator. */
   readonly type: "qos1-outbound"
+  /** Packet identifier. */
   readonly packetId: number
+  /** The PUBLISH packet being tracked. */
   readonly packet: PublishPacket
+  /** Timestamp when the packet was sent. */
   readonly sentAt: number
+  /** Number of retransmission attempts. */
   readonly retryCount: number
 }
 
@@ -63,9 +72,13 @@ export type QoS1OutboundFlow = {
  * Server receives PUBLISH → sends PUBACK to client.
  */
 export type QoS1InboundFlow = {
+  /** Flow type discriminator. */
   readonly type: "qos1-inbound"
+  /** Packet identifier. */
   readonly packetId: number
+  /** The PUBLISH packet being tracked. */
   readonly packet: PublishPacket
+  /** Timestamp when the packet was received. */
   readonly receivedAt: number
 }
 
@@ -78,12 +91,23 @@ export type QoS2OutboundState =
   | "awaiting-pubrec" // PUBLISH sent, awaiting PUBREC
   | "awaiting-pubcomp" // PUBREL sent, awaiting PUBCOMP
 
+/**
+ * QoS 2 outbound flow state (server → client).
+ *
+ * Server sends PUBLISH → awaits PUBREC → sends PUBREL → awaits PUBCOMP.
+ */
 export type QoS2OutboundFlow = {
+  /** Flow type discriminator. */
   readonly type: "qos2-outbound"
+  /** Packet identifier. */
   readonly packetId: number
+  /** The PUBLISH packet being tracked. */
   readonly packet: PublishPacket
+  /** Current flow state. */
   readonly state: QoS2OutboundState
+  /** Timestamp when the packet was sent. */
   readonly sentAt: number
+  /** Number of retransmission attempts. */
   readonly retryCount: number
 }
 
@@ -94,11 +118,21 @@ export type QoS2OutboundFlow = {
  */
 export type QoS2InboundState = "awaiting-pubrel" // PUBREC sent, awaiting PUBREL
 
+/**
+ * QoS 2 inbound flow state (client → server).
+ *
+ * Server receives PUBLISH → sends PUBREC → awaits PUBREL → sends PUBCOMP.
+ */
 export type QoS2InboundFlow = {
+  /** Flow type discriminator. */
   readonly type: "qos2-inbound"
+  /** Packet identifier. */
   readonly packetId: number
+  /** The PUBLISH packet being tracked. */
   readonly packet: PublishPacket
+  /** Current flow state. */
   readonly state: QoS2InboundState
+  /** Timestamp when the packet was received. */
   readonly receivedAt: number
 }
 

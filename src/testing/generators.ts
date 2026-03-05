@@ -749,12 +749,24 @@ export function splitAtPositions(data: Uint8Array, positions: number[]): Uint8Ar
 }
 
 /**
+ * Result of arbWithChunkSplits generator.
+ */
+export type ChunkSplitResult<T> = {
+  /** The generated value. */
+  value: T
+  /** The encoded buffer. */
+  buffer: Uint8Array
+  /** The buffer split into chunks. */
+  chunks: Uint8Array[]
+}
+
+/**
  * Arbitrary that produces a buffer and its arbitrary chunk splits.
  */
 export function arbWithChunkSplits<T>(
   arbValue: fc.Arbitrary<T>,
   toBuffer: (value: T) => Uint8Array
-): fc.Arbitrary<{ value: T; buffer: Uint8Array; chunks: Uint8Array[] }> {
+): fc.Arbitrary<ChunkSplitResult<T>> {
   return arbValue.chain((value) => {
     const buffer = toBuffer(value)
     return arbChunkSplits(buffer.length).map((positions) => ({

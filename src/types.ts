@@ -22,7 +22,9 @@ export type ProtocolVersion = "3.1.1" | "5.0"
  * @see MQTT 3.1.1 §3.1.2.2, MQTT 5.0 §3.1.2.2
  */
 export const PROTOCOL_LEVEL = {
+  /** MQTT 3.1.1 uses protocol level 4. */
   "3.1.1": 4,
+  /** MQTT 5.0 uses protocol level 5. */
   "5.0": 5
 } as const satisfies Record<ProtocolVersion, number>
 
@@ -49,7 +51,9 @@ export type QoS = 0 | 1 | 2
  * Successful decode result containing the decoded value.
  */
 export type DecodeSuccess<T> = {
+  /** Discriminator indicating success. */
   readonly ok: true
+  /** The decoded value. */
   readonly value: T
 }
 
@@ -57,7 +61,9 @@ export type DecodeSuccess<T> = {
  * Failed decode result containing the error.
  */
 export type DecodeFailure = {
+  /** Discriminator indicating failure. */
   readonly ok: false
+  /** The decode error with details. */
   readonly error: DecodeError
 }
 

@@ -64,6 +64,14 @@ function writeFixedHeader(
 // CONNECT Encoding (§3.1)
 // -----------------------------------------------------------------------------
 
+/**
+ * Encode a CONNECT packet to binary format.
+ *
+ * Encodes protocol name, level, connect flags, keep alive, properties (5.0),
+ * and payload (client ID, will, username, password).
+ *
+ * @see MQTT 5.0 §3.1
+ */
 function encodeConnect(packet: ConnectPacket, version: ProtocolVersion): Uint8Array {
   const writer = new BinaryWriter()
 
@@ -146,6 +154,13 @@ function encodeConnect(packet: ConnectPacket, version: ProtocolVersion): Uint8Ar
 // CONNACK Encoding (§3.2)
 // -----------------------------------------------------------------------------
 
+/**
+ * Encode a CONNACK packet to binary format.
+ *
+ * Encodes session present flag, reason code, and properties (5.0).
+ *
+ * @see MQTT 5.0 §3.2
+ */
 function encodeConnack(packet: ConnackPacket, version: ProtocolVersion): Uint8Array {
   const writer = new BinaryWriter()
   const tempWriter = new BinaryWriter()
@@ -176,6 +191,14 @@ function encodeConnack(packet: ConnackPacket, version: ProtocolVersion): Uint8Ar
 // PUBLISH Encoding (§3.3)
 // -----------------------------------------------------------------------------
 
+/**
+ * Encode a PUBLISH packet to binary format.
+ *
+ * Fixed header flags encode DUP (bit 3), QoS (bits 2-1), and RETAIN (bit 0).
+ * Packet ID is only present for QoS > 0.
+ *
+ * @see MQTT 5.0 §3.3
+ */
 function encodePublish(packet: PublishPacket, version: ProtocolVersion): Uint8Array {
   const writer = new BinaryWriter()
   const tempWriter = new BinaryWriter()
@@ -222,6 +245,15 @@ function encodePublish(packet: PublishPacket, version: ProtocolVersion): Uint8Ar
 // PUBACK/PUBREC/PUBREL/PUBCOMP Encoding (§3.4-§3.7)
 // -----------------------------------------------------------------------------
 
+/**
+ * Encode PUBACK, PUBREC, PUBREL, or PUBCOMP packets.
+ *
+ * Shared encoder for QoS acknowledgement packets. PUBREL requires fixed header
+ * flags of 0x02; others use 0x00. In 5.0, reason code and properties are omitted
+ * if reason code is 0x00 (success) and no properties are present.
+ *
+ * @see MQTT 5.0 §3.4-§3.7
+ */
 function encodePubAckType(
   packetType:
     | typeof PacketType.PUBACK
@@ -267,18 +299,22 @@ function encodePubAckType(
   return writer.toUint8Array()
 }
 
+/** Encode PUBACK (QoS 1 publish acknowledgement). @see MQTT 5.0 §3.4 */
 function encodePuback(packet: PubackPacket, version: ProtocolVersion): Uint8Array {
   return encodePubAckType(PacketType.PUBACK, packet, version)
 }
 
+/** Encode PUBREC (QoS 2 publish received). @see MQTT 5.0 §3.5 */
 function encodePubrec(packet: PubrecPacket, version: ProtocolVersion): Uint8Array {
   return encodePubAckType(PacketType.PUBREC, packet, version)
 }
 
+/** Encode PUBREL (QoS 2 publish release). @see MQTT 5.0 §3.6 */
 function encodePubrel(packet: PubrelPacket, version: ProtocolVersion): Uint8Array {
   return encodePubAckType(PacketType.PUBREL, packet, version)
 }
 
+/** Encode PUBCOMP (QoS 2 publish complete). @see MQTT 5.0 §3.7 */
 function encodePubcomp(packet: PubcompPacket, version: ProtocolVersion): Uint8Array {
   return encodePubAckType(PacketType.PUBCOMP, packet, version)
 }
@@ -287,6 +323,14 @@ function encodePubcomp(packet: PubcompPacket, version: ProtocolVersion): Uint8Ar
 // SUBSCRIBE Encoding (§3.8)
 // -----------------------------------------------------------------------------
 
+/**
+ * Encode a SUBSCRIBE packet to binary format.
+ *
+ * Fixed header flags must be 0x02. Subscription options byte layout (5.0):
+ * bits 0-1: QoS, bit 2: No Local, bit 3: Retain As Published, bits 4-5: Retain Handling.
+ *
+ * @see MQTT 5.0 §3.8
+ */
 function encodeSubscribe(packet: SubscribePacket, version: ProtocolVersion): Uint8Array {
   const writer = new BinaryWriter()
   const tempWriter = new BinaryWriter()
@@ -339,6 +383,13 @@ function encodeSubscribe(packet: SubscribePacket, version: ProtocolVersion): Uin
 // SUBACK Encoding (§3.9)
 // -----------------------------------------------------------------------------
 
+/**
+ * Encode a SUBACK packet to binary format.
+ *
+ * Contains one reason code per subscription in the corresponding SUBSCRIBE.
+ *
+ * @see MQTT 5.0 §3.9
+ */
 function encodeSuback(packet: SubackPacket, version: ProtocolVersion): Uint8Array {
   const writer = new BinaryWriter()
   const tempWriter = new BinaryWriter()
@@ -372,6 +423,13 @@ function encodeSuback(packet: SubackPacket, version: ProtocolVersion): Uint8Arra
 // UNSUBSCRIBE Encoding (§3.10)
 // -----------------------------------------------------------------------------
 
+/**
+ * Encode an UNSUBSCRIBE packet to binary format.
+ *
+ * Fixed header flags must be 0x02. Payload contains topic filters to unsubscribe.
+ *
+ * @see MQTT 5.0 §3.10
+ */
 function encodeUnsubscribe(packet: UnsubscribePacket, version: ProtocolVersion): Uint8Array {
   const writer = new BinaryWriter()
   const tempWriter = new BinaryWriter()
@@ -408,6 +466,13 @@ function encodeUnsubscribe(packet: UnsubscribePacket, version: ProtocolVersion):
 // UNSUBACK Encoding (§3.11)
 // -----------------------------------------------------------------------------
 
+/**
+ * Encode an UNSUBACK packet to binary format.
+ *
+ * In 5.0, contains reason codes for each topic filter. In 3.1.1, only packet ID.
+ *
+ * @see MQTT 5.0 §3.11
+ */
 function encodeUnsuback(packet: UnsubackPacket, version: ProtocolVersion): Uint8Array {
   const writer = new BinaryWriter()
   const tempWriter = new BinaryWriter()
@@ -443,8 +508,12 @@ function encodeUnsuback(packet: UnsubackPacket, version: ProtocolVersion): Uint8
 // PINGREQ Encoding (§3.12)
 // -----------------------------------------------------------------------------
 
+/**
+ * Encode a PINGREQ packet (fixed 2 bytes: 0xC0 0x00).
+ *
+ * @see MQTT 5.0 §3.12
+ */
 function encodePingreq(_packet: PingreqPacket): Uint8Array {
-  // PINGREQ is fixed: 0xC0 0x00
   return new Uint8Array([0xc0, 0x00])
 }
 
@@ -452,8 +521,12 @@ function encodePingreq(_packet: PingreqPacket): Uint8Array {
 // PINGRESP Encoding (§3.13)
 // -----------------------------------------------------------------------------
 
+/**
+ * Encode a PINGRESP packet (fixed 2 bytes: 0xD0 0x00).
+ *
+ * @see MQTT 5.0 §3.13
+ */
 function encodePingresp(_packet: PingrespPacket): Uint8Array {
-  // PINGRESP is fixed: 0xD0 0x00
   return new Uint8Array([0xd0, 0x00])
 }
 
@@ -461,6 +534,14 @@ function encodePingresp(_packet: PingrespPacket): Uint8Array {
 // DISCONNECT Encoding (§3.14)
 // -----------------------------------------------------------------------------
 
+/**
+ * Encode a DISCONNECT packet to binary format.
+ *
+ * In 3.1.1, always fixed 2 bytes (0xE0 0x00). In 5.0, reason code and properties
+ * are omitted if reason code is 0x00 (normal) and no properties present.
+ *
+ * @see MQTT 5.0 §3.14
+ */
 function encodeDisconnect(packet: DisconnectPacket, version: ProtocolVersion): Uint8Array {
   const writer = new BinaryWriter()
 
@@ -503,6 +584,14 @@ function encodeDisconnect(packet: DisconnectPacket, version: ProtocolVersion): U
 // AUTH Encoding (§3.15) - MQTT 5.0 only
 // -----------------------------------------------------------------------------
 
+/**
+ * Encode an AUTH packet to binary format (MQTT 5.0 only).
+ *
+ * Used for extended authentication. Reason code and properties can be omitted
+ * if reason code is 0x00 (success) and no properties present.
+ *
+ * @see MQTT 5.0 §3.15
+ */
 function encodeAuth(packet: AuthPacket): Uint8Array {
   const writer = new BinaryWriter()
   const tempWriter = new BinaryWriter()

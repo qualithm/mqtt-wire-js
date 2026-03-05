@@ -44,6 +44,7 @@ import type { ProtocolVersion, QoS, ReasonCode } from "./types.js"
  * Error thrown for protocol violations.
  */
 export class ProtocolError extends Error {
+  /** MQTT reason code associated with this error. */
   readonly reasonCode: ReasonCode
 
   constructor(message: string, reasonCode: ReasonCode = 0x82) {
@@ -57,6 +58,7 @@ export class ProtocolError extends Error {
  * Error thrown for invalid state transitions.
  */
 export class StateError extends Error {
+  /** The connection state when the error occurred. */
   readonly state: ConnectionState
 
   constructor(message: string, state: ConnectionState) {

@@ -95,7 +95,12 @@ function parseFixedHeader(reader: BinaryReader): DecodeResult<FixedHeader> {
 // -----------------------------------------------------------------------------
 
 /**
- * Decode will message from connect payload.
+ * Decode will message from CONNECT payload.
+ *
+ * Will properties are only present in MQTT 5.0. QoS and retain come from
+ * the connect flags, not the will message itself.
+ *
+ * @see MQTT 5.0 §3.1.3.2
  */
 function decodeWillMessage(
   reader: BinaryReader,
@@ -134,6 +139,14 @@ function decodeWillMessage(
   })
 }
 
+/**
+ * Decode a CONNECT packet from binary format.
+ *
+ * Parses protocol name/level, connect flags (clean start, will, credentials),
+ * keep alive, properties (5.0), and payload (client ID, will, username, password).
+ *
+ * @see MQTT 5.0 §3.1
+ */
 function decodeConnect(
   reader: BinaryReader,
   _remainingLength: number
@@ -263,6 +276,13 @@ function decodeConnect(
 // CONNACK Decoding (§3.2)
 // -----------------------------------------------------------------------------
 
+/**
+ * Decode a CONNACK packet from binary format.
+ *
+ * Parses session present flag, reason code, and properties (5.0).
+ *
+ * @see MQTT 5.0 §3.2
+ */
 function decodeConnack(
   reader: BinaryReader,
   _remainingLength: number,
@@ -313,6 +333,15 @@ function decodeConnack(
 // PUBLISH Decoding (§3.3)
 // -----------------------------------------------------------------------------
 
+/**
+ * Decode a PUBLISH packet from binary format.
+ *
+ * Fixed header flags contain DUP (bit 3), QoS (bits 2-1), and RETAIN (bit 0).
+ * Packet ID is only present for QoS > 0. Payload is remaining bytes after
+ * variable header.
+ *
+ * @see MQTT 5.0 §3.3
+ */
 function decodePublish(
   reader: BinaryReader,
   flags: number,
@@ -391,6 +420,14 @@ function decodePublish(
 // PUBACK/PUBREC/PUBREL/PUBCOMP Decoding (§3.4-§3.7)
 // -----------------------------------------------------------------------------
 
+/**
+ * Decode a PUBACK packet (QoS 1 publish acknowledgement).
+ *
+ * In 5.0, reason code and properties are optional; if remaining length is 2,
+ * only packet ID is present and reason code defaults to 0x00 (success).
+ *
+ * @see MQTT 5.0 §3.4
+ */
 function decodePuback(
   reader: BinaryReader,
   remainingLength: number,
@@ -431,6 +468,11 @@ function decodePuback(
   })
 }
 
+/**
+ * Decode a PUBREC packet (QoS 2 publish received).
+ *
+ * @see MQTT 5.0 §3.5
+ */
 function decodePubrec(
   reader: BinaryReader,
   remainingLength: number,
@@ -470,6 +512,11 @@ function decodePubrec(
   })
 }
 
+/**
+ * Decode a PUBREL packet (QoS 2 publish release).
+ *
+ * @see MQTT 5.0 §3.6
+ */
 function decodePubrel(
   reader: BinaryReader,
   remainingLength: number,
@@ -509,6 +556,11 @@ function decodePubrel(
   })
 }
 
+/**
+ * Decode a PUBCOMP packet (QoS 2 publish complete).
+ *
+ * @see MQTT 5.0 §3.7
+ */
 function decodePubcomp(
   reader: BinaryReader,
   remainingLength: number,
@@ -552,6 +604,14 @@ function decodePubcomp(
 // SUBSCRIBE Decoding (§3.8)
 // -----------------------------------------------------------------------------
 
+/**
+ * Decode a SUBSCRIBE packet from binary format.
+ *
+ * Subscription options byte layout (5.0): bits 0-1: QoS, bit 2: No Local,
+ * bit 3: Retain As Published, bits 4-5: Retain Handling.
+ *
+ * @see MQTT 5.0 §3.8
+ */
 function decodeSubscribe(
   reader: BinaryReader,
   remainingLength: number,
@@ -630,6 +690,13 @@ function decodeSubscribe(
 // SUBACK Decoding (§3.9)
 // -----------------------------------------------------------------------------
 
+/**
+ * Decode a SUBACK packet from binary format.
+ *
+ * Contains one reason code per subscription in the corresponding SUBSCRIBE.
+ *
+ * @see MQTT 5.0 §3.9
+ */
 function decodeSuback(
   reader: BinaryReader,
   remainingLength: number,
@@ -678,6 +745,13 @@ function decodeSuback(
 // UNSUBSCRIBE Decoding (§3.10)
 // -----------------------------------------------------------------------------
 
+/**
+ * Decode an UNSUBSCRIBE packet from binary format.
+ *
+ * Payload contains topic filters to unsubscribe from.
+ *
+ * @see MQTT 5.0 §3.10
+ */
 function decodeUnsubscribe(
   reader: BinaryReader,
   remainingLength: number,
@@ -732,6 +806,13 @@ function decodeUnsubscribe(
 // UNSUBACK Decoding (§3.11)
 // -----------------------------------------------------------------------------
 
+/**
+ * Decode an UNSUBACK packet from binary format.
+ *
+ * In 5.0, contains reason codes for each topic filter. In 3.1.1, only packet ID.
+ *
+ * @see MQTT 5.0 §3.11
+ */
 function decodeUnsuback(
   reader: BinaryReader,
   remainingLength: number,
@@ -782,6 +863,7 @@ function decodeUnsuback(
 // PINGREQ Decoding (§3.12)
 // -----------------------------------------------------------------------------
 
+/** Decode a PINGREQ packet (zero-length body). @see MQTT 5.0 §3.12 */
 function decodePingreq(): DecodeResult<PingreqPacket> {
   return ok({ type: PacketType.PINGREQ })
 }
@@ -790,6 +872,7 @@ function decodePingreq(): DecodeResult<PingreqPacket> {
 // PINGRESP Decoding (§3.13)
 // -----------------------------------------------------------------------------
 
+/** Decode a PINGRESP packet (zero-length body). @see MQTT 5.0 §3.13 */
 function decodePingresp(): DecodeResult<PingrespPacket> {
   return ok({ type: PacketType.PINGRESP })
 }
@@ -798,6 +881,14 @@ function decodePingresp(): DecodeResult<PingrespPacket> {
 // DISCONNECT Decoding (§3.14)
 // -----------------------------------------------------------------------------
 
+/**
+ * Decode a DISCONNECT packet from binary format.
+ *
+ * In 3.1.1, always zero-length. In 5.0, reason code and properties are optional;
+ * if remaining length is 0, reason code defaults to 0x00 (normal).
+ *
+ * @see MQTT 5.0 §3.14
+ */
 function decodeDisconnect(
   reader: BinaryReader,
   remainingLength: number,
@@ -841,8 +932,14 @@ function decodeDisconnect(
 // AUTH Decoding (§3.15) - MQTT 5.0 only
 // -----------------------------------------------------------------------------
 
+/**
+ * Decode an AUTH packet from binary format (MQTT 5.0 only).
+ *
+ * Used for extended authentication. Default reason code is 0x00 (success).
+ *
+ * @see MQTT 5.0 §3.15
+ */
 function decodeAuth(reader: BinaryReader, remainingLength: number): DecodeResult<AuthPacket> {
-  // Default reason code is 0x00 (success)
   let reasonCode: ReasonCode = 0x00
   let properties: AuthPacket["properties"]
 

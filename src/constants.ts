@@ -55,6 +55,8 @@ export type PacketType = (typeof PacketType)[keyof typeof PacketType]
 
 /**
  * Packet type names for debugging/logging.
+ *
+ * @see MQTT 5.0 §2.1.2
  */
 export const PACKET_TYPE_NAME: Record<PacketType, string> = {
   [PacketType.CONNECT]: "CONNECT",
@@ -147,6 +149,8 @@ export type PropertyId = (typeof PropertyId)[keyof typeof PropertyId]
 
 /**
  * Property identifier names for debugging/logging.
+ *
+ * @see MQTT 5.0 §2.2.2.2
  */
 export const PROPERTY_ID_NAME: Record<PropertyId, string> = {
   [PropertyId.PAYLOAD_FORMAT_INDICATOR]: "Payload Format Indicator",
@@ -258,6 +262,8 @@ export const MAX_VARIABLE_BYTE_INTEGER_LENGTH = 4
  *
  * This is the theoretical maximum based on the variable byte integer
  * encoding. Actual limits are often much smaller (e.g., 128 KB).
+ *
+ * @see MQTT 5.0 §2.2.3, §3.1.2.11.4
  */
 export const MAX_PACKET_SIZE = MAX_VARIABLE_BYTE_INTEGER + 1
 
@@ -277,15 +283,21 @@ export const DEFAULT_RECEIVE_MAXIMUM = 65_535
 
 /**
  * Maximum value for a packet identifier (16-bit unsigned).
+ *
+ * @see MQTT 5.0 §2.2.1
  */
 export const MAX_PACKET_ID = 65_535
 
 /**
  * Minimum value for a packet identifier.
+ *
+ * @see MQTT 5.0 §2.2.1
  */
 export const MIN_PACKET_ID = 1
 
 /**
  * Maximum value for a topic alias (16-bit unsigned, non-zero).
+ *
+ * @see MQTT 5.0 §3.3.2.3.4
  */
 export const MAX_TOPIC_ALIAS = 65_535
