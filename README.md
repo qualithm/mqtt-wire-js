@@ -100,21 +100,41 @@ const packet = writer.toUint8Array()
 
 ## Error Handling
 
-```ts
-import { ProtocolError, StateError, type DecodeResult } from "@qualithm/mqtt-wire"
+MqttWire uses lifecycle hooks for error reporting — `receive()` does not throw protocol errors.
 
-// Protocol errors include MQTT reason codes
-try {
-  wire.receive(malformedData)
-} catch (error) {
-  if (error instanceof ProtocolError) {
+```ts
+import { MqttWire, ProtocolError, StateError, type DecodeResult } from "@qualithm/mqtt-wire"
+
+// Protocol errors from receive() are reported via the onError hook
+const wire = new MqttWire({
+  onSend: (data) => socket.write(data),
+  onConnect: (connect) => ({
+    /* ... */
+  }),
+
+  onError: (error) => {
+    // error is a ProtocolError with an MQTT reason code
     console.error(`protocol error: ${error.message}`, {
       reasonCode: error.reasonCode
     })
-  } else if (error instanceof StateError) {
-    console.error(`state error: ${error.message}`, {
-      state: error.state
-    })
+    socket.destroy()
+  }
+})
+
+// receive() handles protocol errors internally; guard against unexpected failures
+socket.on("data", (chunk) => {
+  wire.receive(chunk).catch((err) => {
+    console.error("unexpected receive error", err)
+    socket.destroy()
+  })
+})
+
+// StateError is thrown by outbound methods when called in the wrong state
+try {
+  await wire.publish("topic", payload)
+} catch (error) {
+  if (error instanceof StateError) {
+    console.error(`state error: ${error.message}`, { state: error.state })
   }
 }
 
