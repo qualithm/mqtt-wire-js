@@ -39,7 +39,7 @@ import {
   type SubscribePacket,
   type UnsubackPacket,
   type UnsubscribePacket
-} from "../src/index.ts"
+} from "@qualithm/mqtt-wire"
 
 const PORT = Number(Deno.env.get("MQTT_PORT") ?? 1883)
 
@@ -120,16 +120,12 @@ async function handleConnection(conn: {
 
   try {
     const buffer = new Uint8Array(4096)
+    let bytesRead = await conn.read(buffer)
 
-    while (true) {
-      const bytesRead = await conn.read(buffer)
-
-      if (bytesRead === null) {
-        break
-      }
-
+    while (bytesRead !== null) {
       // MqttWire handles all protocol processing
       await wire.receive(buffer.subarray(0, bytesRead))
+      bytesRead = await conn.read(buffer)
     }
   } catch (err) {
     if (err instanceof Deno.errors.BadResource) {

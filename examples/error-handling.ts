@@ -19,7 +19,7 @@ import {
   REASON_CODE_NAME,
   type ReasonCode,
   validateMqttUtf8
-} from "../src/index"
+} from "@qualithm/mqtt-wire"
 
 /**
  * Demonstrates handling DecodeResult without exceptions.

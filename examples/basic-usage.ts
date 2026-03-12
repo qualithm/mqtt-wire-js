@@ -18,7 +18,7 @@ import {
   encodeVariableByteIntegerToArray,
   PACKET_TYPE_NAME,
   PacketType
-} from "../src/index"
+} from "@qualithm/mqtt-wire"
 
 function main(): void {
   console.log("=== MQTT Wire Basic Usage ===\n")

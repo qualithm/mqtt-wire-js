@@ -11,7 +11,12 @@
 
 /* eslint-disable no-console */
 
-import { PACKET_TYPE_NAME, type PacketType, parsePacketFrame, StreamFramer } from "../src/index"
+import {
+  PACKET_TYPE_NAME,
+  type PacketType,
+  parsePacketFrame,
+  StreamFramer
+} from "@qualithm/mqtt-wire"
 
 /**
  * Simulates receiving data in chunks from a network connection.
@@ -59,16 +64,8 @@ function main(): void {
   framer1.push(packets)
 
   let packetCount = 0
-  while (true) {
-    const result = framer1.read()
-    if (result.status === "incomplete") {
-      break
-    }
-    if (result.status === "error") {
-      console.log(`  Error: ${result.error.message}`)
-      break
-    }
-
+  let result = framer1.read()
+  while (result.status === "complete") {
     packetCount++
     const frame = parsePacketFrame(result.packetData)
     if (frame.ok) {
@@ -77,6 +74,10 @@ function main(): void {
         `  Packet ${String(packetCount)}: ${typeName} (${String(result.bytesConsumed)} bytes)`
       )
     }
+    result = framer1.read()
+  }
+  if (result.status === "error") {
+    console.log(`  Error: ${result.error.message}`)
   }
   console.log()
 
@@ -96,22 +97,18 @@ function main(): void {
     )
     framer2.push(chunk)
 
-    while (true) {
-      const result = framer2.read()
-      if (result.status === "incomplete") {
-        break
-      }
-      if (result.status === "error") {
-        console.log(`    Error: ${result.error.message}`)
-        break
-      }
-
+    let result = framer2.read()
+    while (result.status === "complete") {
       totalPackets++
       const frame = parsePacketFrame(result.packetData)
       if (frame.ok) {
         const typeName = PACKET_TYPE_NAME[frame.value.packetType as PacketType]
         console.log(`    → Extracted: ${typeName}`)
       }
+      result = framer2.read()
+    }
+    if (result.status === "error") {
+      console.log(`    Error: ${result.error.message}`)
     }
   }
   console.log(`  Total packets extracted: ${String(totalPackets)}`)

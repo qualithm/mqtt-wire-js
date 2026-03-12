@@ -6,6 +6,7 @@
   "excludePrivate": true,
   "excludeProtected": true,
   "excludeExternals": true,
+  "excludeInternal": true,
   "includeVersion": true,
   "navigationLinks": {
     "GitHub": "https://github.com/qualithm/mqtt-wire-js"
@@ -22,6 +23,7 @@
     "Function",
     "Class",
     "Interface",
+    "Property",
     "Method",
     "TypeAlias"
   ]

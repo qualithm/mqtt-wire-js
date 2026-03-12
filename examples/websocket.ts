@@ -30,7 +30,7 @@ import {
   type SubscribePacket,
   type UnsubackPacket,
   type UnsubscribePacket
-} from "../src/index.js"
+} from "@qualithm/mqtt-wire"
 
 const PORT = Number(process.env.MQTT_WS_PORT ?? 8083)
 
