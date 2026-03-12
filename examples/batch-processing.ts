@@ -59,7 +59,6 @@ function main(): void {
   framer1.push(packets)
 
   let packetCount = 0
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
   while (true) {
     const result = framer1.read()
     if (result.status === "incomplete") {
@@ -97,7 +96,6 @@ function main(): void {
     )
     framer2.push(chunk)
 
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     while (true) {
       const result = framer2.read()
       if (result.status === "incomplete") {

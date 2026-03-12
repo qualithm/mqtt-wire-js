@@ -121,7 +121,6 @@ async function handleConnection(conn: {
   try {
     const buffer = new Uint8Array(4096)
 
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     while (true) {
       const bytesRead = await conn.read(buffer)
 
