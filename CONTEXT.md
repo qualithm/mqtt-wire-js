@@ -199,19 +199,3 @@ work.
 - [x] Update exports and documentation
 
 **Exit:** ✓ MqttWire handles incoming client connections; no client-initiating code remains.
-
----
-
-## Learnings
-
-> Append-only. Never edit or delete existing entries.
-
-| Date       | Learning                                                                        |
-| ---------- | ------------------------------------------------------------------------------- |
-| 2025-07-16 | StreamFramer.push() must preserve unconsumed buffer data when new chunks arrive |
-| 2026-03-03 | MqttWire setInterval keepalive must use void/catch pattern, not async callback  |
-| 2026-03-05 | Library is server-only; MqttWire was incorrectly designed as client-side        |
-| 2026-03-05 | Server-side MqttWire: hooks return response packets (onConnect→ConnackPacket)   |
-| 2026-03-05 | Conformance tests use TestServer (real TCP) + mqtt.js client + mosquitto CLI    |
-| 2026-03-05 | Removed placeholder greet.ts; benchmark suite measures real codec operations    |
-| 2026-03-05 | TypeDoc needs multiple entry points for subpath exports (index + testing)       |
