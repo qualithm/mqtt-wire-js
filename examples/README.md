@@ -1,13 +1,34 @@
 # Examples
 
-This directory contains runnable examples demonstrating mqtt-wire as a **server-side** protocol
-handler. MQTT clients connect to these servers.
+Runnable examples demonstrating mqtt-wire usage. Server examples accept MQTT client connections;
+codec examples run standalone.
 
-## Running Server Examples
+## Prerequisites
+
+Connect to a running server with any MQTT client:
+
+```bash
+# Install Mosquitto clients
+brew install mosquitto   # macOS
+sudo apt install mosquitto-clients   # Ubuntu/Debian
+
+# Publish a message
+mosquitto_pub -h localhost -p 1883 -t test/hello -m "Hello World"
+
+# Subscribe to messages
+mosquitto_sub -h localhost -p 1883 -t test/#
+```
+
+## Environment Variables
+
+| Variable       | Default | Description           |
+| -------------- | ------- | --------------------- |
+| `MQTT_PORT`    | `1883`  | TCP server port       |
+| `MQTT_WS_PORT` | `9001`  | WebSocket server port |
+
+## Running Examples
 
 ### TCP Servers
-
-Start an MQTT server that accepts client connections:
 
 ```bash
 # Bun TCP server (port 1883)
@@ -23,44 +44,15 @@ deno run --allow-net --allow-env examples/deno-tcp.ts
 ### WebSocket Server
 
 ```bash
-# Bun WebSocket server (port 9001)
 bun run examples/websocket.ts
 ```
 
-## Testing the Servers
-
-Once a server is running, connect with any MQTT client:
+### Codec Examples
 
 ```bash
-# Install Mosquitto clients
-brew install mosquitto   # macOS
-sudo apt install mosquitto-clients   # Ubuntu/Debian
-
-# Publish a message
-mosquitto_pub -h localhost -p 1883 -t test/hello -m "Hello World"
-
-# Subscribe to messages
-mosquitto_sub -h localhost -p 1883 -t test/#
-```
-
-## Codec Examples
-
-Low-level codec utilities (no network required):
-
-```bash
-# Basic codec usage
 bun run examples/basic-usage.ts
-
-# Error handling
 bun run examples/error-handling.ts
 ```
-
-## Environment Variables
-
-| Variable       | Default | Description           |
-| -------------- | ------- | --------------------- |
-| `MQTT_PORT`    | `1883`  | TCP server port       |
-| `MQTT_WS_PORT` | `9001`  | WebSocket server port |
 
 ## Example Files
 
