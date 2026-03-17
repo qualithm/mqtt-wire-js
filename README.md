@@ -27,8 +27,6 @@ npm install @qualithm/mqtt-wire
 
 ## Quick Start
 
-### TCP Server (Node.js)
-
 ```ts
 import * as net from "node:net"
 import { MqttWire, PacketType } from "@qualithm/mqtt-wire"
@@ -67,6 +65,8 @@ const server = net.createServer((socket) => {
 server.listen(1883, () => console.log("MQTT server on port 1883"))
 ```
 
+## Usage
+
 ### Low-Level Codec
 
 ```ts
@@ -98,7 +98,7 @@ writer
 const packet = writer.toUint8Array()
 ```
 
-## Error Handling
+### Error Handling
 
 MqttWire uses lifecycle hooks for error reporting — `receive()` does not throw protocol errors.
 
@@ -147,24 +147,31 @@ if (result.ok) {
 }
 ```
 
-## API Documentation
+## API Reference
 
-Full API documentation is available in the [docs](docs/) directory. Generate locally with:
+Full API documentation is generated with [TypeDoc](https://typedoc.org/):
 
 ```bash
 bun run docs
+# Output in docs/
 ```
 
 ## Examples
 
-See the [examples](examples/) directory for runnable examples:
+See the [`examples/`](examples/) directory for runnable examples:
 
-- [node-tcp.ts](examples/node-tcp.ts) — Node.js TCP server
-- [bun-tcp.ts](examples/bun-tcp.ts) — Bun TCP server
-- [deno-tcp.ts](examples/deno-tcp.ts) — Deno TCP server
-- [websocket.ts](examples/websocket.ts) — WebSocket server
-- [basic-usage.ts](examples/basic-usage.ts) — Low-level codec utilities
-- [error-handling.ts](examples/error-handling.ts) — Result type patterns
+| Example                                           | Description               |
+| ------------------------------------------------- | ------------------------- |
+| [`node-tcp.ts`](examples/node-tcp.ts)             | Node.js TCP server        |
+| [`bun-tcp.ts`](examples/bun-tcp.ts)               | Bun TCP server            |
+| [`deno-tcp.ts`](examples/deno-tcp.ts)             | Deno TCP server           |
+| [`websocket.ts`](examples/websocket.ts)           | WebSocket server          |
+| [`basic-usage.ts`](examples/basic-usage.ts)       | Low-level codec utilities |
+| [`error-handling.ts`](examples/error-handling.ts) | Result type patterns      |
+
+```bash
+bun run examples/node-tcp.ts
+```
 
 ## Development
 
@@ -187,7 +194,8 @@ bun run build
 ### Testing
 
 ```bash
-bun test
+bun run test              # unit tests
+bun run test:coverage     # with coverage report
 ```
 
 ### Linting & Formatting
