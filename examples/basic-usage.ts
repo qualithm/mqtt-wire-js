@@ -23,8 +23,8 @@ import {
 function main(): void {
   console.log("=== MQTT Wire Basic Usage ===\n")
 
-  // Example 1: Variable byte integer encoding
-  console.log("--- Example 1: Variable Byte Integer ---")
+  // Variable byte integer encoding
+  console.log("--- Variable Byte Integer ---")
   const values = [0, 127, 128, 16383, 16384, 268_435_455]
   for (const value of values) {
     const encoded = encodeVariableByteIntegerToArray(value)
@@ -40,10 +40,9 @@ function main(): void {
       )
     }
   }
-  console.log()
 
-  // Example 2: Packet type constants
-  console.log("--- Example 2: Packet Types ---")
+  // Packet type constants
+  console.log("\n--- Packet Types ---")
   const packetTypes = [
     PacketType.CONNECT,
     PacketType.PUBLISH,
@@ -53,10 +52,9 @@ function main(): void {
   for (const type of packetTypes) {
     console.log(`  Type ${String(type)}: ${PACKET_TYPE_NAME[type]}`)
   }
-  console.log()
 
-  // Example 3: Binary writer/reader
-  console.log("--- Example 3: Binary Writer/Reader ---")
+  // Binary writer/reader
+  console.log("\n--- Binary Writer/Reader ---")
   const writer = new BinaryWriter()
   writer
     .writeUint8(0x10) // CONNECT packet type
@@ -83,7 +81,7 @@ function main(): void {
     console.log(`  Protocol: ${protocol.value}`)
   }
 
-  console.log("\nExamples complete.")
+  console.log("\nDone.")
 }
 
 main()

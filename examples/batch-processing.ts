@@ -18,9 +18,7 @@ import {
   StreamFramer
 } from "@qualithm/mqtt-wire"
 
-/**
- * Simulates receiving data in chunks from a network connection.
- */
+// Simulate receiving data in chunks from a network connection.
 function simulateChunkedReceive(fullData: Uint8Array, chunkSizes: number[]): Uint8Array[] {
   const chunks: Uint8Array[] = []
   let offset = 0
@@ -38,7 +36,7 @@ function simulateChunkedReceive(fullData: Uint8Array, chunkSizes: number[]): Uin
 }
 
 function main(): void {
-  console.log("=== Stream Framing Examples ===\n")
+  console.log("=== Stream Framing ===\n")
 
   // Build some sample MQTT packets
   // PINGREQ (2 bytes): 0xC0 0x00
@@ -58,8 +56,8 @@ function main(): void {
     0x05 // PUBLISH with 5-byte payload
   ])
 
-  // Example 1: Process complete data
-  console.log("--- Example 1: Complete Data ---")
+  // Process complete data
+  console.log("--- Complete Data ---")
   const framer1 = new StreamFramer()
   framer1.push(packets)
 
@@ -81,8 +79,8 @@ function main(): void {
   }
   console.log()
 
-  // Example 2: Process chunked data (simulating network)
-  console.log("--- Example 2: Chunked Data ---")
+  // Process chunked data (simulating network)
+  console.log("--- Chunked Data ---")
   const chunkSizes = [1, 2, 3, 1, 4] // Arbitrary chunk boundaries
   const chunks = simulateChunkedReceive(packets, chunkSizes)
   console.log(`  Receiving ${String(chunks.length)} chunks: [${chunkSizes.join(", ")}] bytes`)
@@ -114,8 +112,8 @@ function main(): void {
   console.log(`  Total packets extracted: ${String(totalPackets)}`)
   console.log()
 
-  // Example 3: Packet size limit
-  console.log("--- Example 3: Packet Size Limit ---")
+  // Packet size limit
+  console.log("--- Packet Size Limit ---")
   const smallFramer = new StreamFramer(5) // Max 5 bytes
   smallFramer.push(new Uint8Array([0x30, 0x10])) // Claims 16-byte payload
 
@@ -124,7 +122,7 @@ function main(): void {
     console.log(`  Rejected: ${limitResult.error.message}`)
   }
 
-  console.log("\nExamples complete.")
+  console.log("\nDone.")
 }
 
 main()

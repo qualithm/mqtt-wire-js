@@ -24,7 +24,7 @@ mosquitto_sub -h localhost -p 1883 -t test/#
 | Variable       | Default | Description           |
 | -------------- | ------- | --------------------- |
 | `MQTT_PORT`    | `1883`  | TCP server port       |
-| `MQTT_WS_PORT` | `9001`  | WebSocket server port |
+| `MQTT_WS_PORT` | `8083`  | WebSocket server port |
 
 ## Running Examples
 
@@ -52,6 +52,7 @@ bun run examples/websocket.ts
 ```bash
 bun run examples/basic-usage.ts
 bun run examples/error-handling.ts
+bun run examples/batch-processing.ts
 ```
 
 ## Example Files

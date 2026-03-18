@@ -1,17 +1,15 @@
 /**
- * Deno TCP server example using MqttWire.
+ * Deno TCP server example.
  *
  * Demonstrates accepting MQTT client connections over TCP using Deno's native
  * network API with MqttWire handling the protocol state machine.
  *
+ * Set `MQTT_PORT` to configure the listening port.
+ *
  * @example
  * ```bash
- * # Run this server
  * deno run --allow-net --allow-env examples/deno-tcp.ts
- *
- * # Then connect with any MQTT client
- * mosquitto_pub -h localhost -p 1883 -t test/hello -m "Hello"
- * mosquitto_sub -h localhost -p 1883 -t test/#
+ * # Then: mosquitto_pub -t test/hello -m "Hello"
  * ```
  */
 
@@ -43,9 +41,7 @@ import {
 
 const PORT = Number(Deno.env.get("MQTT_PORT") ?? 1883)
 
-/**
- * Handle a single client connection.
- */
+// Handle a single client connection.
 async function handleConnection(conn: {
   read: (buffer: Uint8Array) => Promise<number | null>
   write: (data: Uint8Array) => Promise<number>
@@ -138,14 +134,20 @@ async function handleConnection(conn: {
   console.log(`[${String(wire.clientId)}] Disconnected`)
 }
 
-// Start server
-console.log(`Starting MQTT server on port ${String(PORT)}...`)
+// Start server.
+async function main(): Promise<void> {
+  console.log("=== Deno TCP Server ===\n")
 
-const listener = Deno.listen({ hostname: "0.0.0.0", port: PORT })
+  console.log(`Starting MQTT server on port ${String(PORT)}...`)
 
-console.log(`MQTT server listening on port ${String(PORT)}`)
-console.log("Test with: mosquitto_pub -t test/hello -m 'Hello World'")
+  const listener = Deno.listen({ hostname: "0.0.0.0", port: PORT })
 
-for await (const conn of listener) {
-  void handleConnection(conn)
+  console.log(`MQTT server listening on port ${String(PORT)}`)
+  console.log("Test with: mosquitto_pub -t test/hello -m 'Hello World'")
+
+  for await (const conn of listener) {
+    void handleConnection(conn)
+  }
 }
+
+main().catch(console.error)
