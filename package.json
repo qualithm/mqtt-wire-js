@@ -1,6 +1,6 @@
 {
   "name": "@qualithm/mqtt-wire",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Server-side MQTT protocol codec and connection state machine for JavaScript and TypeScript runtimes.",
   "private": false,
   "type": "module",
