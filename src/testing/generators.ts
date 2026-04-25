@@ -88,7 +88,7 @@ export const arbSuccessReasonCode: fc.Arbitrary<ReasonCode> = fc.constantFrom(
   0x00, // Success
   0x01, // Granted QoS 1
   0x02 // Granted QoS 2
-) as fc.Arbitrary<ReasonCode>
+)
 
 /**
  * Arbitrary for common reason codes.
@@ -113,7 +113,7 @@ export const arbReasonCode: fc.Arbitrary<ReasonCode> = fc.constantFrom(
   0x9b, // QoS not supported
   0x9d, // Shared subscription not supported
   0x9e // Subscription identifier not supported
-) as fc.Arbitrary<ReasonCode>
+)
 
 // -----------------------------------------------------------------------------
 // MQTT Strings
@@ -640,14 +640,14 @@ export const arbUnsubackPacket: fc.Arbitrary<UnsubackPacket> = fc.record(
  * Arbitrary for PINGREQ packets.
  */
 export const arbPingreqPacket: fc.Arbitrary<PingreqPacket> = fc.constant({
-  type: PacketType.PINGREQ as typeof PacketType.PINGREQ
+  type: PacketType.PINGREQ
 })
 
 /**
  * Arbitrary for PINGRESP packets.
  */
 export const arbPingrespPacket: fc.Arbitrary<PingrespPacket> = fc.constant({
-  type: PacketType.PINGRESP as typeof PacketType.PINGRESP
+  type: PacketType.PINGRESP
 })
 
 /**
@@ -668,7 +668,7 @@ export const arbDisconnectPacket: fc.Arbitrary<DisconnectPacket> = fc.record(
 export const arbAuthPacket: fc.Arbitrary<AuthPacket> = fc.record(
   {
     type: fc.constant(PacketType.AUTH as typeof PacketType.AUTH),
-    reasonCode: fc.constantFrom(0x00, 0x18, 0x19) as fc.Arbitrary<ReasonCode>,
+    reasonCode: fc.constantFrom(0x00, 0x18, 0x19),
     properties: arbAuthProperties
   },
   { requiredKeys: ["type", "reasonCode"] }
