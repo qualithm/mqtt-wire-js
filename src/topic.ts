@@ -346,7 +346,7 @@ export function parseSharedSubscription(filter: string): DecodeResult<SharedSubs
   // Topic filter must be valid
   const filterResult = validateTopicFilter(topicFilter)
   if (!filterResult.ok) {
-    return filterResult as DecodeResult<SharedSubscription>
+    return filterResult
   }
 
   return ok({ shareGroup, topicFilter })

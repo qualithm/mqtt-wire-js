@@ -817,42 +817,42 @@ export const edgeCaseFixtures: {
   /** Maximum packet ID */
   maxPacketId: {
     name: "maximum packet ID (65535)",
-    version: "5.0" as ProtocolVersion,
+    version: "5.0",
     packet: {
       type: PacketType.PUBACK,
       packetId: 65535
-    } as PubackPacket,
+    },
     bytes: fromHex("40 02 ff ff")
   },
 
   /** Minimum packet ID */
   minPacketId: {
     name: "minimum packet ID (1)",
-    version: "5.0" as ProtocolVersion,
+    version: "5.0",
     packet: {
       type: PacketType.PUBACK,
       packetId: 1
-    } as PubackPacket,
+    },
     bytes: fromHex("40 02 00 01")
   },
 
   /** Empty client ID (allowed in MQTT 5.0) */
   emptyClientId: {
     name: "empty client ID",
-    version: "5.0" as ProtocolVersion,
+    version: "5.0",
     packet: {
       type: PacketType.CONNECT,
       protocolVersion: "5.0",
       clientId: "",
       cleanStart: true,
       keepAlive: 60
-    } as ConnectPacket
+    }
   },
 
   /** Maximum topic length (65535 bytes would be too large for most tests) */
   longTopic: {
     name: "long topic (128 characters)",
-    version: "5.0" as ProtocolVersion,
+    version: "5.0",
     packet: {
       type: PacketType.PUBLISH,
       topic: "a".repeat(128),
@@ -860,29 +860,29 @@ export const edgeCaseFixtures: {
       retain: false,
       dup: false,
       payload: new Uint8Array(0)
-    } as PublishPacket
+    }
   },
 
   /** Topic with multi-level wildcard */
   multiLevelWildcard: {
     name: "multi-level wildcard subscription",
-    version: "5.0" as ProtocolVersion,
+    version: "5.0",
     packet: {
       type: PacketType.SUBSCRIBE,
       packetId: 1,
       subscriptions: [{ topicFilter: "sensors/#", options: { qos: 1 } }]
-    } as SubscribePacket
+    }
   },
 
   /** Topic with single-level wildcard */
   singleLevelWildcard: {
     name: "single-level wildcard subscription",
-    version: "5.0" as ProtocolVersion,
+    version: "5.0",
     packet: {
       type: PacketType.SUBSCRIBE,
       packetId: 1,
       subscriptions: [{ topicFilter: "sensors/+/temp", options: { qos: 1 } }]
-    } as SubscribePacket
+    }
   }
 }
 

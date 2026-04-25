@@ -633,22 +633,22 @@ export function parseConnectProperties(raw: RawProperties): ConnectProperties {
 
   const sessionExpiry = raw.get(PropertyId.SESSION_EXPIRY_INTERVAL)
   if (sessionExpiry !== undefined) {
-    props.sessionExpiryInterval = sessionExpiry as number
+    props.sessionExpiryInterval = sessionExpiry
   }
 
   const receiveMax = raw.get(PropertyId.RECEIVE_MAXIMUM)
   if (receiveMax !== undefined) {
-    props.receiveMaximum = receiveMax as number
+    props.receiveMaximum = receiveMax
   }
 
   const maxPacketSize = raw.get(PropertyId.MAXIMUM_PACKET_SIZE)
   if (maxPacketSize !== undefined) {
-    props.maximumPacketSize = maxPacketSize as number
+    props.maximumPacketSize = maxPacketSize
   }
 
   const topicAliasMax = raw.get(PropertyId.TOPIC_ALIAS_MAXIMUM)
   if (topicAliasMax !== undefined) {
-    props.topicAliasMaximum = topicAliasMax as number
+    props.topicAliasMaximum = topicAliasMax
   }
 
   const reqRespInfo = raw.get(PropertyId.REQUEST_RESPONSE_INFORMATION)
@@ -663,20 +663,20 @@ export function parseConnectProperties(raw: RawProperties): ConnectProperties {
 
   const authMethod = raw.get(PropertyId.AUTHENTICATION_METHOD)
   if (authMethod !== undefined) {
-    props.authenticationMethod = authMethod as string
+    props.authenticationMethod = authMethod
   }
 
   const authData = raw.get(PropertyId.AUTHENTICATION_DATA)
   if (authData !== undefined) {
-    props.authenticationData = authData as Uint8Array
+    props.authenticationData = authData
   }
 
   const userProps = raw.get(PropertyId.USER_PROPERTY)
   if (userProps !== undefined) {
-    props.userProperties = userProps as UserProperty[]
+    props.userProperties = userProps
   }
 
-  return props as ConnectProperties
+  return props
 }
 
 /**
@@ -687,40 +687,40 @@ export function parseWillProperties(raw: RawProperties): WillProperties {
 
   const willDelay = raw.get(PropertyId.WILL_DELAY_INTERVAL)
   if (willDelay !== undefined) {
-    props.willDelayInterval = willDelay as number
+    props.willDelayInterval = willDelay
   }
 
   const payloadFormat = raw.get(PropertyId.PAYLOAD_FORMAT_INDICATOR)
   if (payloadFormat !== undefined) {
-    props.payloadFormatIndicator = payloadFormat as 0 | 1
+    props.payloadFormatIndicator = payloadFormat
   }
 
   const msgExpiry = raw.get(PropertyId.MESSAGE_EXPIRY_INTERVAL)
   if (msgExpiry !== undefined) {
-    props.messageExpiryInterval = msgExpiry as number
+    props.messageExpiryInterval = msgExpiry
   }
 
   const contentType = raw.get(PropertyId.CONTENT_TYPE)
   if (contentType !== undefined) {
-    props.contentType = contentType as string
+    props.contentType = contentType
   }
 
   const respTopic = raw.get(PropertyId.RESPONSE_TOPIC)
   if (respTopic !== undefined) {
-    props.responseTopic = respTopic as string
+    props.responseTopic = respTopic
   }
 
   const corrData = raw.get(PropertyId.CORRELATION_DATA)
   if (corrData !== undefined) {
-    props.correlationData = corrData as Uint8Array
+    props.correlationData = corrData
   }
 
   const userProps = raw.get(PropertyId.USER_PROPERTY)
   if (userProps !== undefined) {
-    props.userProperties = userProps as UserProperty[]
+    props.userProperties = userProps
   }
 
-  return props as WillProperties
+  return props
 }
 
 /**
@@ -731,17 +731,17 @@ export function parseConnackProperties(raw: RawProperties): ConnackProperties {
 
   const sessionExpiry = raw.get(PropertyId.SESSION_EXPIRY_INTERVAL)
   if (sessionExpiry !== undefined) {
-    props.sessionExpiryInterval = sessionExpiry as number
+    props.sessionExpiryInterval = sessionExpiry
   }
 
   const receiveMax = raw.get(PropertyId.RECEIVE_MAXIMUM)
   if (receiveMax !== undefined) {
-    props.receiveMaximum = receiveMax as number
+    props.receiveMaximum = receiveMax
   }
 
   const maxQoS = raw.get(PropertyId.MAXIMUM_QOS)
   if (maxQoS !== undefined) {
-    props.maximumQoS = maxQoS as number
+    props.maximumQoS = maxQoS
   }
 
   const retainAvail = raw.get(PropertyId.RETAIN_AVAILABLE)
@@ -751,22 +751,22 @@ export function parseConnackProperties(raw: RawProperties): ConnackProperties {
 
   const maxPacketSize = raw.get(PropertyId.MAXIMUM_PACKET_SIZE)
   if (maxPacketSize !== undefined) {
-    props.maximumPacketSize = maxPacketSize as number
+    props.maximumPacketSize = maxPacketSize
   }
 
   const assignedClientId = raw.get(PropertyId.ASSIGNED_CLIENT_IDENTIFIER)
   if (assignedClientId !== undefined) {
-    props.assignedClientIdentifier = assignedClientId as string
+    props.assignedClientIdentifier = assignedClientId
   }
 
   const topicAliasMax = raw.get(PropertyId.TOPIC_ALIAS_MAXIMUM)
   if (topicAliasMax !== undefined) {
-    props.topicAliasMaximum = topicAliasMax as number
+    props.topicAliasMaximum = topicAliasMax
   }
 
   const reasonStr = raw.get(PropertyId.REASON_STRING)
   if (reasonStr !== undefined) {
-    props.reasonString = reasonStr as string
+    props.reasonString = reasonStr
   }
 
   const wildcardSub = raw.get(PropertyId.WILDCARD_SUBSCRIPTION_AVAILABLE)
@@ -786,35 +786,35 @@ export function parseConnackProperties(raw: RawProperties): ConnackProperties {
 
   const serverKeepAlive = raw.get(PropertyId.SERVER_KEEP_ALIVE)
   if (serverKeepAlive !== undefined) {
-    props.serverKeepAlive = serverKeepAlive as number
+    props.serverKeepAlive = serverKeepAlive
   }
 
   const respInfo = raw.get(PropertyId.RESPONSE_INFORMATION)
   if (respInfo !== undefined) {
-    props.responseInformation = respInfo as string
+    props.responseInformation = respInfo
   }
 
   const serverRef = raw.get(PropertyId.SERVER_REFERENCE)
   if (serverRef !== undefined) {
-    props.serverReference = serverRef as string
+    props.serverReference = serverRef
   }
 
   const authMethod = raw.get(PropertyId.AUTHENTICATION_METHOD)
   if (authMethod !== undefined) {
-    props.authenticationMethod = authMethod as string
+    props.authenticationMethod = authMethod
   }
 
   const authData = raw.get(PropertyId.AUTHENTICATION_DATA)
   if (authData !== undefined) {
-    props.authenticationData = authData as Uint8Array
+    props.authenticationData = authData
   }
 
   const userProps = raw.get(PropertyId.USER_PROPERTY)
   if (userProps !== undefined) {
-    props.userProperties = userProps as UserProperty[]
+    props.userProperties = userProps
   }
 
-  return props as ConnackProperties
+  return props
 }
 
 /**
@@ -825,45 +825,45 @@ export function parsePublishProperties(raw: RawProperties): PublishProperties {
 
   const payloadFormat = raw.get(PropertyId.PAYLOAD_FORMAT_INDICATOR)
   if (payloadFormat !== undefined) {
-    props.payloadFormatIndicator = payloadFormat as 0 | 1
+    props.payloadFormatIndicator = payloadFormat
   }
 
   const msgExpiry = raw.get(PropertyId.MESSAGE_EXPIRY_INTERVAL)
   if (msgExpiry !== undefined) {
-    props.messageExpiryInterval = msgExpiry as number
+    props.messageExpiryInterval = msgExpiry
   }
 
   const topicAlias = raw.get(PropertyId.TOPIC_ALIAS)
   if (topicAlias !== undefined) {
-    props.topicAlias = topicAlias as number
+    props.topicAlias = topicAlias
   }
 
   const respTopic = raw.get(PropertyId.RESPONSE_TOPIC)
   if (respTopic !== undefined) {
-    props.responseTopic = respTopic as string
+    props.responseTopic = respTopic
   }
 
   const corrData = raw.get(PropertyId.CORRELATION_DATA)
   if (corrData !== undefined) {
-    props.correlationData = corrData as Uint8Array
+    props.correlationData = corrData
   }
 
   const subIds = raw.get(PropertyId.SUBSCRIPTION_IDENTIFIER)
   if (subIds !== undefined) {
-    props.subscriptionIdentifiers = subIds as number[]
+    props.subscriptionIdentifiers = subIds
   }
 
   const contentType = raw.get(PropertyId.CONTENT_TYPE)
   if (contentType !== undefined) {
-    props.contentType = contentType as string
+    props.contentType = contentType
   }
 
   const userProps = raw.get(PropertyId.USER_PROPERTY)
   if (userProps !== undefined) {
-    props.userProperties = userProps as UserProperty[]
+    props.userProperties = userProps
   }
 
-  return props as PublishProperties
+  return props
 }
 
 /**
@@ -874,15 +874,15 @@ export function parsePubAckProperties(raw: RawProperties): PubAckProperties {
 
   const reasonStr = raw.get(PropertyId.REASON_STRING)
   if (reasonStr !== undefined) {
-    props.reasonString = reasonStr as string
+    props.reasonString = reasonStr
   }
 
   const userProps = raw.get(PropertyId.USER_PROPERTY)
   if (userProps !== undefined) {
-    props.userProperties = userProps as UserProperty[]
+    props.userProperties = userProps
   }
 
-  return props as PubAckProperties
+  return props
 }
 
 /**
@@ -901,10 +901,10 @@ export function parseSubscribeProperties(raw: RawProperties): SubscribePropertie
 
   const userProps = raw.get(PropertyId.USER_PROPERTY)
   if (userProps !== undefined) {
-    props.userProperties = userProps as UserProperty[]
+    props.userProperties = userProps
   }
 
-  return props as SubscribeProperties
+  return props
 }
 
 /**
@@ -915,15 +915,15 @@ export function parseSubackProperties(raw: RawProperties): SubackProperties {
 
   const reasonStr = raw.get(PropertyId.REASON_STRING)
   if (reasonStr !== undefined) {
-    props.reasonString = reasonStr as string
+    props.reasonString = reasonStr
   }
 
   const userProps = raw.get(PropertyId.USER_PROPERTY)
   if (userProps !== undefined) {
-    props.userProperties = userProps as UserProperty[]
+    props.userProperties = userProps
   }
 
-  return props as SubackProperties
+  return props
 }
 
 /**
@@ -934,10 +934,10 @@ export function parseUnsubscribeProperties(raw: RawProperties): UnsubscribePrope
 
   const userProps = raw.get(PropertyId.USER_PROPERTY)
   if (userProps !== undefined) {
-    props.userProperties = userProps as UserProperty[]
+    props.userProperties = userProps
   }
 
-  return props as UnsubscribeProperties
+  return props
 }
 
 /**
@@ -948,15 +948,15 @@ export function parseUnsubackProperties(raw: RawProperties): UnsubackProperties 
 
   const reasonStr = raw.get(PropertyId.REASON_STRING)
   if (reasonStr !== undefined) {
-    props.reasonString = reasonStr as string
+    props.reasonString = reasonStr
   }
 
   const userProps = raw.get(PropertyId.USER_PROPERTY)
   if (userProps !== undefined) {
-    props.userProperties = userProps as UserProperty[]
+    props.userProperties = userProps
   }
 
-  return props as UnsubackProperties
+  return props
 }
 
 /**
@@ -967,25 +967,25 @@ export function parseDisconnectProperties(raw: RawProperties): DisconnectPropert
 
   const sessionExpiry = raw.get(PropertyId.SESSION_EXPIRY_INTERVAL)
   if (sessionExpiry !== undefined) {
-    props.sessionExpiryInterval = sessionExpiry as number
+    props.sessionExpiryInterval = sessionExpiry
   }
 
   const reasonStr = raw.get(PropertyId.REASON_STRING)
   if (reasonStr !== undefined) {
-    props.reasonString = reasonStr as string
+    props.reasonString = reasonStr
   }
 
   const serverRef = raw.get(PropertyId.SERVER_REFERENCE)
   if (serverRef !== undefined) {
-    props.serverReference = serverRef as string
+    props.serverReference = serverRef
   }
 
   const userProps = raw.get(PropertyId.USER_PROPERTY)
   if (userProps !== undefined) {
-    props.userProperties = userProps as UserProperty[]
+    props.userProperties = userProps
   }
 
-  return props as DisconnectProperties
+  return props
 }
 
 /**
@@ -996,23 +996,23 @@ export function parseAuthProperties(raw: RawProperties): AuthProperties {
 
   const authMethod = raw.get(PropertyId.AUTHENTICATION_METHOD)
   if (authMethod !== undefined) {
-    props.authenticationMethod = authMethod as string
+    props.authenticationMethod = authMethod
   }
 
   const authData = raw.get(PropertyId.AUTHENTICATION_DATA)
   if (authData !== undefined) {
-    props.authenticationData = authData as Uint8Array
+    props.authenticationData = authData
   }
 
   const reasonStr = raw.get(PropertyId.REASON_STRING)
   if (reasonStr !== undefined) {
-    props.reasonString = reasonStr as string
+    props.reasonString = reasonStr
   }
 
   const userProps = raw.get(PropertyId.USER_PROPERTY)
   if (userProps !== undefined) {
-    props.userProperties = userProps as UserProperty[]
+    props.userProperties = userProps
   }
 
-  return props as AuthProperties
+  return props
 }
