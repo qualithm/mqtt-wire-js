@@ -1,6 +1,6 @@
 # MQTT Wire
 
-[![CI](https://github.com/qualithm/mqtt-wire-js/actions/workflows/ci.yaml/badge.svg?event=pull_request)](https://github.com/qualithm/mqtt-wire-js/actions/workflows/ci.yaml)
+[![CI](https://github.com/qualithm/mqtt-wire-js/actions/workflows/ci.yaml/badge.svg?branch=main)](https://github.com/qualithm/mqtt-wire-js/actions/workflows/ci.yaml)
 [![codecov](https://codecov.io/gh/qualithm/mqtt-wire-js/graph/badge.svg)](https://codecov.io/gh/qualithm/mqtt-wire-js)
 [![npm](https://img.shields.io/npm/v/@qualithm/mqtt-wire)](https://www.npmjs.com/package/@qualithm/mqtt-wire)
 
