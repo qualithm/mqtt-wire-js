@@ -178,6 +178,8 @@ bun run examples/node-tcp.ts
 ### Prerequisites
 
 - [Bun](https://bun.sh/) (recommended), Node.js 20+, or [Deno](https://deno.land/)
+- [mosquitto](https://mosquitto.org/) — provides `mosquitto_pub` / `mosquitto_sub` for conformance
+  tests (`brew install mosquitto`)
 
 ### Setup
 
