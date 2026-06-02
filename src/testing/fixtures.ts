@@ -241,7 +241,7 @@ export const connackFixtures: PacketFixture<ConnackPacket>[] = [
     bytes: fromHex("20 0b 00 00 08 21 00 14 22 00 0a 24 01 25 01")
   },
   {
-    name: "MQTT 5.0 CONNACK not authorised",
+    name: "MQTT 5.0 CONNACK not authorized",
     version: "5.0",
     specRef: "§3.2.2.2",
     packet: {

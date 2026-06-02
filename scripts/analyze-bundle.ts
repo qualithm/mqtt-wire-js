@@ -159,4 +159,4 @@ for (const scenario of scenarios) {
 
 console.log()
 console.log("Note: Actual bundle size depends on bundler and tree-shaking effectiveness.")
-console.log("The library uses named exports throughout to maximise tree-shaking potential.")
+console.log("The library uses named exports throughout to maximize tree-shaking potential.")
