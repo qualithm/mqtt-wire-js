@@ -89,13 +89,13 @@ describe("types", () => {
     it("isSuccessReasonCode rejects error codes", () => {
       expect(isSuccessReasonCode(0x80)).toBe(false) // Unspecified error
       expect(isSuccessReasonCode(0x81)).toBe(false) // Malformed packet
-      expect(isSuccessReasonCode(0x87)).toBe(false) // Not authorised
+      expect(isSuccessReasonCode(0x87)).toBe(false) // Not authorized
     })
 
     it("isErrorReasonCode identifies error codes", () => {
       expect(isErrorReasonCode(0x80)).toBe(true) // Unspecified error
       expect(isErrorReasonCode(0x81)).toBe(true) // Malformed packet
-      expect(isErrorReasonCode(0x87)).toBe(true) // Not authorised
+      expect(isErrorReasonCode(0x87)).toBe(true) // Not authorized
       expect(isErrorReasonCode(0xa2)).toBe(true) // Wildcard subscriptions not supported
     })
 

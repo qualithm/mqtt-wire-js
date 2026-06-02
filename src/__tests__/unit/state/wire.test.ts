@@ -144,7 +144,7 @@ describe("MqttWire (Server-Side)", () => {
     it("rejects connection when hook throws", async () => {
       const onDisconnect = vi.fn()
       const onConnect = vi.fn((): ConnackPacket => {
-        throw new ProtocolError("not authorised", 0x87)
+        throw new ProtocolError("not authorized", 0x87)
       })
       const { wire, sentPackets } = createWire({ onConnect, onDisconnect })
 
@@ -174,7 +174,7 @@ describe("MqttWire (Server-Side)", () => {
         (): ConnackPacket => ({
           type: PacketType.CONNACK,
           sessionPresent: false,
-          reasonCode: 0x87 // Not authorised
+          reasonCode: 0x87 // Not authorized
         })
       )
       const { wire } = createWire({ onConnect, onDisconnect })

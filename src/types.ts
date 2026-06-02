@@ -186,7 +186,7 @@ export type ReasonCode =
   | 0x84 // Unsupported protocol version
   | 0x85 // Client identifier not valid
   | 0x86 // Bad user name or password
-  | 0x87 // Not authorised
+  | 0x87 // Not authorized
   | 0x88 // Server unavailable
   | 0x89 // Server busy
   | 0x8a // Banned

@@ -71,7 +71,7 @@ describe("constants", () => {
     it("has names for error codes", () => {
       expect(REASON_CODE_NAME[0x80]).toBe("Unspecified error")
       expect(REASON_CODE_NAME[0x81]).toBe("Malformed packet")
-      expect(REASON_CODE_NAME[0x87]).toBe("Not authorised")
+      expect(REASON_CODE_NAME[0x87]).toBe("Not authorized")
     })
   })
 
