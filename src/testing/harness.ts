@@ -106,7 +106,7 @@ export type HookCallRecords = {
  * Options for TestHarness.
  */
 export type TestHarnessOptions = MqttWireOptions & {
-  /** Default CONNACK to return (if onConnect not customised) */
+  /** Default CONNACK to return (if onConnect not customized) */
   readonly defaultConnack?: ConnackPacket
 }
 
