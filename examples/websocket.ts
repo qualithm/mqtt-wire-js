@@ -147,6 +147,7 @@ function main(): void {
         const wsWithWire = ws as unknown as { wire?: MqttWire }
         if (wsWithWire.wire !== undefined) {
           console.log(`[${String(wsWithWire.wire.clientId)}] WebSocket closed`)
+          wsWithWire.wire.reset()
         }
       }
     }
