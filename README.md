@@ -59,7 +59,7 @@ const server = net.createServer((socket) => {
   })
 
   socket.on("data", (chunk) => wire.receive(chunk))
-  socket.on("close", () => wire.close())
+  socket.on("close", () => wire.reset())
 })
 
 server.listen(1883, () => console.log("MQTT server on port 1883"))

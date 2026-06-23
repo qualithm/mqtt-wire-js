@@ -114,6 +114,7 @@ function main(): void {
 
     socket.on("close", () => {
       console.log(`[${String(wire.clientId)}] Disconnected`)
+      wire.reset()
       connections.delete(socket)
     })
 
