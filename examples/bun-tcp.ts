@@ -128,6 +128,7 @@ function main(): void {
         const wire = connections.get(socket)
         if (wire) {
           console.log(`[${String(wire.clientId)}] Disconnected`)
+          wire.reset()
           connections.delete(socket)
         }
       },

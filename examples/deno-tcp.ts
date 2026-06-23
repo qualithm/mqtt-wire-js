@@ -132,6 +132,7 @@ async function handleConnection(conn: {
   }
 
   console.log(`[${String(wire.clientId)}] Disconnected`)
+  wire.reset()
 }
 
 // Start server.
