@@ -6,8 +6,8 @@ description:
 
 # Pre-commit Checks
 
-This repo's `ci.yaml` is generated from `dx/ci-templates/bun-lib-mqtt.yaml`. Run these before
-committing so CI passes on the first try:
+This repo's `ci.yaml` is generated from `dx/ci-templates/bun-lib-mqtt.yaml` via `dx ci sync` (check
+for drift with `dx ci drift`). Run these before committing so CI passes on the first try:
 
 ```bash
 bun run lint
