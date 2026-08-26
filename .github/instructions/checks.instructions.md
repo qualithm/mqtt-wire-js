@@ -17,11 +17,16 @@ bun run test:unit
 bun run test:conformance   # requires `mosquitto-clients` installed locally
 ```
 
+CI runs coverage on every PR, whatever the target branch, and on push to `main`:
+
+```bash
+bun run test:coverage:unit                     # line coverage must be >=80%
+```
+
 On PRs targeting `main`, CI additionally runs and blocks on:
 
 ```bash
 bun run build && bun run validate:runtime      # cross-runtime export shape
 npx vitest run src/__tests__/unit              # Node.js
 deno run -A npm:vitest run src/__tests__/unit  # Deno
-bun run test:coverage:unit                     # line coverage must be >=80%
 ```
