@@ -34,7 +34,7 @@ import {
   type MqttWireOptions
 } from "./state/types.js"
 import { validateTopicName } from "./topic.js"
-import type { ProtocolVersion, QoS, ReasonCode } from "./types.js"
+import type { DecodeError, DecodeErrorCode, ProtocolVersion, QoS, ReasonCode } from "./types.js"
 
 // -----------------------------------------------------------------------------
 // Errors
@@ -47,11 +47,26 @@ export class ProtocolError extends Error {
   /** MQTT reason code associated with this error. */
   readonly reasonCode: ReasonCode
 
-  constructor(message: string, reasonCode: ReasonCode = 0x82) {
+  /** Stable decode error code when the error came from decoding inbound bytes. */
+  readonly code?: DecodeErrorCode
+
+  constructor(message: string, reasonCode: ReasonCode = 0x82, code?: DecodeErrorCode) {
     super(message)
     this.name = "ProtocolError"
     this.reasonCode = reasonCode
+    this.code = code
   }
+}
+
+/**
+ * Build a ProtocolError from a decode error, keeping its code.
+ *
+ * Oversized packets map to 0x95 (Packet too large, §3.1.2.11.4 / §4.13);
+ * every other decode failure maps to 0x81 (Malformed packet).
+ */
+function protocolErrorFromDecode(error: DecodeError): ProtocolError {
+  const reasonCode: ReasonCode = error.code === "PACKET_TOO_LARGE" ? 0x95 : 0x81
+  return new ProtocolError(error.message, reasonCode, error.code)
 }
 
 /**
@@ -229,14 +244,14 @@ export class MqttWire {
       frame = this.framer.read()
     ) {
       if (frame.status === "error") {
-        await this.handleProtocolError(new ProtocolError(frame.error.message, 0x81))
+        await this.handleProtocolError(protocolErrorFromDecode(frame.error))
         break
       }
 
       // Decode the packet
       const decodeResult = decodePacket(frame.packetData, this.protocolVersion)
       if (!decodeResult.ok) {
-        await this.handleProtocolError(new ProtocolError(decodeResult.error.message, 0x81))
+        await this.handleProtocolError(protocolErrorFromDecode(decodeResult.error))
         continue
       }
 

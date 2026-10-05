@@ -113,10 +113,15 @@ const wire = new MqttWire({
   }),
 
   onError: (error) => {
-    // error is a ProtocolError with an MQTT reason code
-    console.error(`protocol error: ${error.message}`, {
-      reasonCode: error.reasonCode
-    })
+    // A ProtocolError carries an MQTT reason code. Errors from decoding inbound
+    // bytes also carry a stable code: an oversized frame has code
+    // "PACKET_TOO_LARGE" and reason 0x95; other malformed input has 0x81.
+    if (error instanceof ProtocolError) {
+      console.error(`protocol error: ${error.message}`, {
+        reasonCode: error.reasonCode,
+        code: error.code
+      })
+    }
     socket.destroy()
   }
 })

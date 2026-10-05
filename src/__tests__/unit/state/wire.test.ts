@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
 import { PacketType } from "../../../constants.js"
+import { decodePacket } from "../../../packets/decode.js"
 import { encodePacket } from "../../../packets/encode.js"
 import type {
   ConnackPacket,
@@ -13,13 +14,16 @@ import type {
   UnsubackPacket,
   UnsubscribePacket
 } from "../../../packets/types.js"
-import type { LifecycleHooks } from "../../../state/types.js"
+import type { LifecycleHooks, MqttWireOptions } from "../../../state/types.js"
 import { MqttWire, ProtocolError, StateError } from "../../../wire.js"
 
 /**
  * Helper to create MqttWire with mock hooks.
  */
-function createWire(hooks: Partial<LifecycleHooks> = {}): {
+function createWire(
+  hooks: Partial<LifecycleHooks> = {},
+  options: MqttWireOptions = {}
+): {
   wire: MqttWire
   onSend: ReturnType<typeof vi.fn>
   onConnect: ReturnType<typeof vi.fn>
@@ -37,7 +41,7 @@ function createWire(hooks: Partial<LifecycleHooks> = {}): {
       reasonCode: 0x00
     })
   )
-  const wire = new MqttWire({ onSend, onConnect, ...hooks })
+  const wire = new MqttWire({ onSend, onConnect, ...hooks }, options)
   return { wire, onSend, onConnect, sentPackets }
 }
 
@@ -518,6 +522,75 @@ describe("MqttWire (Server-Side)", () => {
       await wire.receive(malformed)
 
       expect(onError).toHaveBeenCalledWith(expect.any(ProtocolError))
+    })
+
+    it("reports malformed packets with their decode code and reason 0x81", async () => {
+      const onError = vi.fn()
+      const { wire, sentPackets } = createWire({ onError })
+      await connectClient(wire)
+      const before = sentPackets.length
+
+      await wire.receive(new Uint8Array([0x00, 0x00]))
+
+      const error = onError.mock.calls[0][0] as ProtocolError
+      expect(error.code).toBe("MALFORMED_PACKET")
+      expect(error.reasonCode).toBe(0x81)
+
+      const sent = decodePacket(sentPackets[before])
+      expect(sent.ok && sent.value.packet).toMatchObject({
+        type: PacketType.DISCONNECT,
+        reasonCode: 0x81
+      })
+    })
+
+    it("reports oversized frames with code PACKET_TOO_LARGE and reason 0x95", async () => {
+      const onError = vi.fn()
+      const { wire, sentPackets } = createWire({ onError }, { maximumPacketSize: 128 })
+      await connectClient(wire)
+      const before = sentPackets.length
+
+      const publish: PublishPacket = {
+        type: PacketType.PUBLISH,
+        topic: "test/topic",
+        qos: 0,
+        retain: false,
+        dup: false,
+        payload: new Uint8Array(256)
+      }
+      await receivePacket(wire, publish)
+
+      expect(onError).toHaveBeenCalledTimes(1)
+      const error = onError.mock.calls[0][0] as ProtocolError
+      expect(error).toBeInstanceOf(ProtocolError)
+      expect(error.code).toBe("PACKET_TOO_LARGE")
+      expect(error.reasonCode).toBe(0x95)
+
+      expect(sentPackets.length).toBe(before + 1)
+      const sent = decodePacket(sentPackets[before])
+      expect(sent.ok && sent.value.packet).toMatchObject({
+        type: PacketType.DISCONNECT,
+        reasonCode: 0x95
+      })
+      expect(wire.isConnected).toBe(false)
+    })
+
+    it("reports oversized frames before CONNECT without sending DISCONNECT", async () => {
+      const onError = vi.fn()
+      const { wire, sentPackets } = createWire({ onError }, { maximumPacketSize: 16 })
+
+      await connectClient(wire, { clientId: "a-client-id-longer-than-the-limit" })
+
+      const error = onError.mock.calls[0][0] as ProtocolError
+      expect(error.code).toBe("PACKET_TOO_LARGE")
+      expect(error.reasonCode).toBe(0x95)
+      expect(sentPackets.length).toBe(0)
+    })
+  })
+
+  describe("ProtocolError", () => {
+    it("leaves code undefined when not built from a decode error", () => {
+      const error = new ProtocolError("keepalive timeout", 0x8d)
+      expect(error.code).toBeUndefined()
     })
   })
 
