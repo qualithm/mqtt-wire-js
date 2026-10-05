@@ -4,7 +4,7 @@
  * MQTT uses a variable length encoding scheme for integers. The encoding
  * uses up to 4 bytes to represent values from 0 to 268,435,455.
  *
- * @see MQTT 5.0 §2.2.3
+ * @see MQTT 5.0 §1.5.5
  * @packageDocumentation
  */
 
@@ -76,7 +76,7 @@ export function variableByteIntegerLength(value: number): number {
  * @returns Number of bytes written (1-4)
  * @throws RangeError if value is out of range or buffer is too small
  *
- * @see MQTT 5.0 §2.2.3
+ * @see MQTT 5.0 §1.5.5
  *
  * @example
  * ```ts
@@ -151,7 +151,7 @@ export function encodeVariableByteIntegerToArray(value: number): Uint8Array {
  * @param offset - The offset in the buffer to start reading
  * @returns DecodeResult containing value and bytesRead, or error
  *
- * @see MQTT 5.0 §2.2.3
+ * @see MQTT 5.0 §1.5.5
  *
  * @example
  * ```ts

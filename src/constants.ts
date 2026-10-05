@@ -246,14 +246,14 @@ export const REASON_CODE_NAME: Record<ReasonCode, string> = {
 /**
  * Maximum value for a variable byte integer (268,435,455).
  *
- * @see MQTT 5.0 §2.2.3
+ * @see MQTT 5.0 §1.5.5
  */
 export const MAX_VARIABLE_BYTE_INTEGER = 268_435_455
 
 /**
  * Maximum number of bytes to encode a variable byte integer.
  *
- * @see MQTT 5.0 §2.2.3
+ * @see MQTT 5.0 §1.5.5
  */
 export const MAX_VARIABLE_BYTE_INTEGER_LENGTH = 4
 
@@ -263,7 +263,7 @@ export const MAX_VARIABLE_BYTE_INTEGER_LENGTH = 4
  * This is the theoretical maximum based on the variable byte integer
  * encoding. Actual limits are often much smaller (e.g., 128 KB).
  *
- * @see MQTT 5.0 §2.2.3, §3.1.2.11.4
+ * @see MQTT 5.0 §1.5.5, §3.1.2.11.4
  */
 export const MAX_PACKET_SIZE = MAX_VARIABLE_BYTE_INTEGER + 1
 

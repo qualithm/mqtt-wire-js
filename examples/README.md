@@ -61,7 +61,7 @@ bun run examples/batch-processing.ts
 | ------------------------------------------ | ------------------------------------- |
 | [basic-usage.ts](basic-usage.ts)           | Codec utilities demo                  |
 | [error-handling.ts](error-handling.ts)     | Input validation and error handling   |
-| [batch-processing.ts](batch-processing.ts) | Processing multiple items             |
+| [batch-processing.ts](batch-processing.ts) | Stream framing of chunked MQTT data   |
 | [bun-tcp.ts](bun-tcp.ts)                   | Bun TCP server accepting MQTT clients |
 | [node-tcp.ts](node-tcp.ts)                 | Node.js TCP server                    |
 | [deno-tcp.ts](deno-tcp.ts)                 | Deno TCP server                       |
