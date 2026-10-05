@@ -555,16 +555,23 @@ export class MqttWire {
 
     // Handle QoS acknowledgements
     if (packet.qos === 1 && packet.packetId !== undefined) {
-      // QoS 1: Send PUBACK, then deliver
       const puback: PubackPacket = {
         type: PacketType.PUBACK,
         packetId: packet.packetId
       }
-      await this.sendPacket(puback)
-
-      // Deliver to application
-      if (this.hooks.onPublish) {
-        await this.hooks.onPublish(resolvedPacket)
+      if (this.options.pubackAfterDelivery) {
+        // Deliver, then acknowledge: a hook that throws skips the PUBACK, so
+        // the client still holds the message and resends it.
+        if (this.hooks.onPublish) {
+          await this.hooks.onPublish(resolvedPacket)
+        }
+        await this.sendPacket(puback)
+      } else {
+        // QoS 1: Send PUBACK, then deliver
+        await this.sendPacket(puback)
+        if (this.hooks.onPublish) {
+          await this.hooks.onPublish(resolvedPacket)
+        }
       }
     } else if (packet.qos === 2 && packet.packetId !== undefined) {
       // QoS 2: Check for duplicate

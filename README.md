@@ -98,6 +98,16 @@ writer
 const packet = writer.toUint8Array()
 ```
 
+### Acknowledge after delivery
+
+By default a QoS 1 PUBACK is sent before `onPublish` runs. Set `pubackAfterDelivery` to acknowledge
+only once the hook resolves: a hook that throws leaves the message unacknowledged, so the client
+keeps it and resends it.
+
+```ts
+const wire = new MqttWire(hooks, { pubackAfterDelivery: true })
+```
+
 ### Error Handling
 
 MqttWire uses lifecycle hooks for error reporting — `receive()` does not throw protocol errors.
