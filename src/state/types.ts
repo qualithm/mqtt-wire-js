@@ -166,7 +166,9 @@ export type OnConnectHook = (packet: ConnectPacket) => ConnackPacket | Promise<C
 /**
  * Hook called when client sends PUBLISH.
  *
- * QoS acknowledgements (PUBACK, PUBREC) are handled automatically.
+ * QoS acknowledgements (PUBACK, PUBREC) are handled automatically. With
+ * `pubackAfterDelivery`, a QoS 1 PUBACK waits for this hook, and a hook that
+ * throws withholds it.
  * The packet's topic is already resolved from topic alias if applicable.
  */
 export type OnPublishHook = (packet: PublishPacket) => void | Promise<void>
@@ -240,6 +242,13 @@ export type MqttWireOptions = {
   readonly retryInterval?: number
   /** Maximum retry count before giving up */
   readonly maxRetries?: number
+  /**
+   * Send a QoS 1 PUBACK only after `onPublish` resolves. A hook that throws
+   * then leaves the message unacknowledged, so the client keeps it and resends
+   * it, instead of the server acknowledging data it failed to handle. Off by
+   * default: the PUBACK goes out before delivery.
+   */
+  readonly pubackAfterDelivery?: boolean
 }
 
 /**
@@ -250,5 +259,6 @@ export const DEFAULT_WIRE_OPTIONS: Required<MqttWireOptions> = {
   topicAliasMaximum: 0,
   keepAliveMultiplier: 1.5,
   retryInterval: 5000,
-  maxRetries: 3
+  maxRetries: 3,
+  pubackAfterDelivery: false
 }

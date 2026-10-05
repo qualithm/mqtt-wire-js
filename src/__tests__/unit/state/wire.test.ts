@@ -235,6 +235,57 @@ describe("MqttWire (Server-Side)", () => {
       expect(onPublish).toHaveBeenCalled()
     })
 
+    it("acknowledges QoS 1 only after delivery with pubackAfterDelivery", async () => {
+      const order: string[] = []
+      const { wire, sentPackets } = createWire(
+        {
+          onPublish: async () => {
+            order.push(`publish:${String(sentPackets.length)}`)
+            await Promise.resolve()
+          }
+        },
+        { pubackAfterDelivery: true }
+      )
+      await connectClient(wire)
+      const initialPackets = sentPackets.length
+
+      await receivePacket(wire, {
+        type: PacketType.PUBLISH,
+        topic: "test/topic",
+        packetId: 1,
+        qos: 1,
+        retain: false,
+        dup: false,
+        payload: new Uint8Array([1])
+      })
+
+      // The hook ran before anything was sent; then the PUBACK went out.
+      expect(order).toEqual([`publish:${String(initialPackets)}`])
+      expect(sentPackets.length).toBe(initialPackets + 1)
+    })
+
+    it("withholds the QoS 1 PUBACK when delivery fails with pubackAfterDelivery", async () => {
+      const { wire, sentPackets } = createWire(
+        { onPublish: async () => Promise.reject(new Error("forward failed")) },
+        { pubackAfterDelivery: true }
+      )
+      await connectClient(wire)
+      const initialPackets = sentPackets.length
+
+      await expect(
+        receivePacket(wire, {
+          type: PacketType.PUBLISH,
+          topic: "test/topic",
+          packetId: 1,
+          qos: 1,
+          retain: false,
+          dup: false,
+          payload: new Uint8Array([1])
+        })
+      ).rejects.toThrow("forward failed")
+      expect(sentPackets.length).toBe(initialPackets)
+    })
+
     it("sends PUBREC for QoS 2 message", async () => {
       const onPublish = vi.fn()
       const { wire, sentPackets } = createWire({ onPublish })
