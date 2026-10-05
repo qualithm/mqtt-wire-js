@@ -286,6 +286,27 @@ describe("MqttWire (Server-Side)", () => {
       expect(sentPackets.length).toBe(initialPackets)
     })
 
+    it.each([false, true])(
+      "sends PUBACK for QoS 1 with no publish hook (pubackAfterDelivery %p)",
+      async (pubackAfterDelivery) => {
+        const { wire, sentPackets } = createWire({}, { pubackAfterDelivery })
+        await connectClient(wire)
+        const initialPackets = sentPackets.length
+
+        await receivePacket(wire, {
+          type: PacketType.PUBLISH,
+          topic: "test/topic",
+          packetId: 1,
+          qos: 1,
+          retain: false,
+          dup: false,
+          payload: new Uint8Array([1])
+        })
+
+        expect(sentPackets.length).toBe(initialPackets + 1)
+      }
+    )
+
     it("sends PUBREC for QoS 2 message", async () => {
       const onPublish = vi.fn()
       const { wire, sentPackets } = createWire({ onPublish })
