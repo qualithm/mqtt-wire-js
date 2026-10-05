@@ -33,7 +33,9 @@ import { MqttWire, PacketType } from "@qualithm/mqtt-wire"
 
 const server = net.createServer((socket) => {
   const wire = new MqttWire({
-    onSend: (data) => socket.write(data),
+    onSend: (data) => {
+      socket.write(data)
+    },
 
     onConnect: (connect) => {
       console.log(`Client connected: ${connect.clientId}`)
@@ -58,7 +60,7 @@ const server = net.createServer((socket) => {
     onDisconnect: () => console.log("Client disconnected")
   })
 
-  socket.on("data", (chunk) => wire.receive(chunk))
+  socket.on("data", (chunk: Buffer) => void wire.receive(chunk))
   socket.on("close", () => wire.reset())
 })
 
@@ -103,11 +105,20 @@ const packet = writer.toUint8Array()
 MqttWire uses lifecycle hooks for error reporting — `receive()` does not throw protocol errors.
 
 ```ts
-import { MqttWire, ProtocolError, StateError, type DecodeResult } from "@qualithm/mqtt-wire"
+import {
+  decodeVariableByteInteger,
+  MqttWire,
+  ProtocolError,
+  StateError,
+  type DecodeResult,
+  type VarintDecodeValue
+} from "@qualithm/mqtt-wire"
 
 // Protocol errors from receive() are reported via the onError hook
 const wire = new MqttWire({
-  onSend: (data) => socket.write(data),
+  onSend: (data) => {
+    socket.write(data)
+  },
   onConnect: (connect) => ({
     /* ... */
   }),
@@ -127,7 +138,7 @@ const wire = new MqttWire({
 })
 
 // receive() handles protocol errors internally; guard against unexpected failures
-socket.on("data", (chunk) => {
+socket.on("data", (chunk: Buffer) => {
   wire.receive(chunk).catch((err) => {
     console.error("unexpected receive error", err)
     socket.destroy()
@@ -144,9 +155,9 @@ try {
 }
 
 // Codec functions return Result types (no exceptions)
-const result: DecodeResult<number> = decodeVariableByteInteger(data, 0)
+const result: DecodeResult<VarintDecodeValue> = decodeVariableByteInteger(data, 0)
 if (result.ok) {
-  console.log(result.value)
+  console.log(result.value.value)
 } else {
   console.error(`[${result.error.code}] ${result.error.message}`)
 }
@@ -165,14 +176,15 @@ bun run docs
 
 See the [`examples/`](examples/) directory for runnable examples:
 
-| Example                                           | Description               |
-| ------------------------------------------------- | ------------------------- |
-| [`node-tcp.ts`](examples/node-tcp.ts)             | Node.js TCP server        |
-| [`bun-tcp.ts`](examples/bun-tcp.ts)               | Bun TCP server            |
-| [`deno-tcp.ts`](examples/deno-tcp.ts)             | Deno TCP server           |
-| [`websocket.ts`](examples/websocket.ts)           | WebSocket server          |
-| [`basic-usage.ts`](examples/basic-usage.ts)       | Low-level codec utilities |
-| [`error-handling.ts`](examples/error-handling.ts) | Result type patterns      |
+| Example                                               | Description                         |
+| ----------------------------------------------------- | ----------------------------------- |
+| [`node-tcp.ts`](examples/node-tcp.ts)                 | Node.js TCP server                  |
+| [`bun-tcp.ts`](examples/bun-tcp.ts)                   | Bun TCP server                      |
+| [`deno-tcp.ts`](examples/deno-tcp.ts)                 | Deno TCP server                     |
+| [`websocket.ts`](examples/websocket.ts)               | WebSocket server                    |
+| [`basic-usage.ts`](examples/basic-usage.ts)           | Low-level codec utilities           |
+| [`batch-processing.ts`](examples/batch-processing.ts) | Stream framing of chunked MQTT data |
+| [`error-handling.ts`](examples/error-handling.ts)     | Result type patterns                |
 
 ```bash
 bun run examples/node-tcp.ts

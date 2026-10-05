@@ -1,16 +1,10 @@
 /**
  * Fast-check arbitraries for MQTT packet fuzzing and property-based testing.
  *
- * Provides generators for:
- * - Protocol primitives (QoS, reason codes, packet IDs)
- * - MQTT strings and binary data
- * - All packet types with valid and edge-case values
- * - Chunk splitting for stream framing tests
- *
  * @example
  * ```ts
  * import * as fc from "fast-check"
- * import { arbPublishPacket, arbChunkSplit } from "@qualithm/mqtt-wire/testing"
+ * import { arbPublishPacket } from "@qualithm/mqtt-wire/testing"
  *
  * fc.assert(
  *   fc.property(arbPublishPacket, (packet) => {

@@ -108,7 +108,7 @@ export class BinaryWriter {
   /**
    * Writes a variable byte integer.
    *
-   * @see MQTT 5.0 §2.2.3
+   * @see MQTT 5.0 §1.5.5
    */
   writeVariableByteInteger(value: number): this {
     const length = variableByteIntegerLength(value)
