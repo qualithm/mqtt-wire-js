@@ -1,45 +1,6 @@
 /**
- * Testing utilities for MQTT Wire.
- *
- * This subpath export (`@qualithm/mqtt-wire/testing`) provides:
- *
- * - **Packet builders** — Fluent API for constructing test packets
- * - **Fast-check generators** — Arbitraries for property-based testing
- * - **Test harness** — Mock MqttWire for testing client code
- * - **Fixtures** — Spec-compliant packet examples
- *
- * @example
- * ```ts
- * import {
- *   // Builders
- *   connect, connack, publish, subscribe,
- *   // Harness
- *   TestHarness, createTestHarness,
- *   // Generators
- *   arbPublishPacket, arbChunkSplits,
- *   // Fixtures
- *   fixtures, fromHex
- * } from "@qualithm/mqtt-wire/testing"
- *
- * // Build packets fluently
- * const packet = publish("sensors/temp").payload("22.5").qos(1).packetId(1).build()
- *
- * // Test with harness
- * const harness = createTestHarness()
- * await harness.wire.connect({ clientId: "test" })
- *
- * // Property-based testing
- * fc.assert(fc.property(arbPublishPacket, (packet) => {
- *   const encoded = encodePacket(packet)
- *   const decoded = decodePacket(encoded)
- *   return decoded.ok
- * }))
- *
- * // Use spec fixtures
- * for (const fixture of fixtures.publish) {
- *   expect(encodePacket(fixture.packet)).toEqual(fixture.bytes)
- * }
- * ```
+ * Test helpers for code that uses MQTT Wire, exported at
+ * `@qualithm/mqtt-wire/testing`.
  *
  * @packageDocumentation
  */

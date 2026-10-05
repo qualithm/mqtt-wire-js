@@ -98,7 +98,7 @@ export type DecodeResult<T> = DecodeSuccess<T> | DecodeFailure
  */
 export type DecodeErrorCode =
   | "INCOMPLETE" // Not enough bytes available
-  | "MALFORMED_VARINT" // Variable byte integer exceeds 4 bytes (§2.2.3)
+  | "MALFORMED_VARINT" // Variable byte integer exceeds 4 bytes (§1.5.5)
   | "MALFORMED_UTF8" // Invalid UTF-8 encoding (§1.5.4)
   | "MALFORMED_PACKET" // General packet structure error
   | "PACKET_TOO_LARGE" // Exceeds maximum packet size
