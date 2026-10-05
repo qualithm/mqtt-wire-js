@@ -10,7 +10,7 @@
  *
  * const connectPacket = connect().clientId("test").cleanStart().build()
  * const publishPacket = publish("sensors/temp").payload("22.5").qos(1).build()
- * const subPacket = subscribe("sensors/#").qos(1).build()
+ * const subPacket = subscribe(1).topic("sensors/#", 1).build()
  * ```
  *
  * @packageDocumentation
