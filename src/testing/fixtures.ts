@@ -719,7 +719,7 @@ export const malformedFixtures: MalformedFixture[] = [
     bytes: fromHex("30 ff ff ff ff 01"),
     version: "5.0",
     expectedError: "MALFORMED_VARINT",
-    specRef: "§2.2.3"
+    specRef: "§1.5.5"
   },
   {
     name: "packet too short for type",

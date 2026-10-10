@@ -117,7 +117,7 @@ export type DecodeError = {
   readonly code: DecodeErrorCode
   /** Human-readable error message (lowercase, no trailing punctuation) */
   readonly message: string
-  /** MQTT spec section reference (e.g., "§2.2.3") */
+  /** MQTT spec section reference (e.g., "§1.5.5") */
   readonly specRef?: string
   /** Byte offset where error occurred */
   readonly offset?: number
