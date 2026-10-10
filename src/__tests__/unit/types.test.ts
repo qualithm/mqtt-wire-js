@@ -44,10 +44,10 @@ describe("types", () => {
     })
 
     it("creates error with spec reference", () => {
-      const error = decodeError("MALFORMED_VARINT", "varint too long", "§2.2.3")
+      const error = decodeError("MALFORMED_VARINT", "varint too long", "§1.5.5")
 
       expect(error.code).toBe("MALFORMED_VARINT")
-      expect(error.specRef).toBe("§2.2.3")
+      expect(error.specRef).toBe("§1.5.5")
     })
 
     it("creates error with offset", () => {
