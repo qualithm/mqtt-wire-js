@@ -173,7 +173,7 @@ export function decodeVariableByteInteger(
 
   while (bytesRead < MAX_VARIABLE_BYTE_INTEGER_LENGTH) {
     if (offset + bytesRead >= buffer.length) {
-      return err(decodeError("INCOMPLETE", "not enough bytes for variable byte integer", "§2.2.3"))
+      return err(decodeError("INCOMPLETE", "not enough bytes for variable byte integer", "§1.5.5"))
     }
 
     const encodedByte = buffer[offset + bytesRead]
@@ -194,7 +194,7 @@ export function decodeVariableByteInteger(
     decodeError(
       "MALFORMED_VARINT",
       "variable byte integer exceeds maximum length",
-      "§2.2.3",
+      "§1.5.5",
       offset
     )
   )

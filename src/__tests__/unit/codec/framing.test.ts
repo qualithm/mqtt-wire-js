@@ -158,7 +158,7 @@ describe("parsePacketFrame", () => {
   })
 
   it("returns error for malformed remaining length", () => {
-    // 5 continuation bytes (invalid per §2.2.3)
+    // 5 continuation bytes (invalid per §1.5.5)
     const result = parsePacketFrame(new Uint8Array([0x10, 0x80, 0x80, 0x80, 0x80, 0x80]))
 
     expect(result.ok).toBe(false)

@@ -1,7 +1,7 @@
 /**
  * Variable byte integer codec tests.
  *
- * Test vectors from MQTT 5.0 §2.2.3.
+ * Test vectors from MQTT 5.0 §1.5.5.
  */
 
 import { describe, expect, it } from "vitest"
@@ -16,7 +16,7 @@ import {
 
 describe("variableByteInteger", () => {
   /**
-   * [§2.2.3] Test vectors from MQTT 5.0 specification Table 2-1.
+   * [§1.5.5] Test vectors from MQTT 5.0 specification Table 2-1.
    *
    * | Decimal    | Hex Bytes          |
    * |------------|--------------------|
@@ -40,7 +40,7 @@ describe("variableByteInteger", () => {
     [268_435_455, [0xff, 0xff, 0xff, 0x7f]]
   ]
 
-  describe("encode [§2.2.3]", () => {
+  describe("encode [§1.5.5]", () => {
     it.each(specVectors)("encodes %d correctly", (value, expectedBytes) => {
       const result = encodeVariableByteIntegerToArray(value)
       expect(Array.from(result)).toEqual(expectedBytes)
@@ -79,7 +79,7 @@ describe("variableByteInteger", () => {
     })
   })
 
-  describe("decode [§2.2.3]", () => {
+  describe("decode [§1.5.5]", () => {
     it.each(specVectors)("decodes %d correctly", (expectedValue, bytes) => {
       const buffer = new Uint8Array(bytes)
       const result = decodeVariableByteInteger(buffer, 0)
@@ -112,7 +112,7 @@ describe("variableByteInteger", () => {
       }
     })
 
-    it("returns error for malformed (5+ continuation bytes) [§2.2.3]", () => {
+    it("returns error for malformed (5+ continuation bytes) [§1.5.5]", () => {
       // All 4 bytes have continuation bit set
       const buffer = new Uint8Array([0x80, 0x80, 0x80, 0x80])
       const result = decodeVariableByteInteger(buffer, 0)
@@ -120,7 +120,7 @@ describe("variableByteInteger", () => {
       expect(result.ok).toBe(false)
       if (!result.ok) {
         expect(result.error.code).toBe("MALFORMED_VARINT")
-        expect(result.error.specRef).toBe("§2.2.3")
+        expect(result.error.specRef).toBe("§1.5.5")
       }
     })
 
