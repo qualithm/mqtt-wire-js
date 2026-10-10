@@ -76,7 +76,7 @@ describe("constants", () => {
   })
 
   describe("protocol limits", () => {
-    it("defines variable byte integer limits [§2.2.3]", () => {
+    it("defines variable byte integer limits [§1.5.5]", () => {
       expect(MAX_VARIABLE_BYTE_INTEGER).toBe(268_435_455)
       expect(MAX_VARIABLE_BYTE_INTEGER_LENGTH).toBe(4)
     })
