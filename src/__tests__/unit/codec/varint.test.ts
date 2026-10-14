@@ -16,7 +16,7 @@ import {
 
 describe("variableByteInteger", () => {
   /**
-   * [§1.5.5] Test vectors from MQTT 5.0 specification Table 2-1.
+   * [§1.5.5] Test vectors from MQTT 5.0 specification Table 1-1.
    *
    * | Decimal    | Hex Bytes          |
    * |------------|--------------------|
