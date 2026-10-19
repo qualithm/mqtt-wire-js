@@ -143,6 +143,7 @@ export type {
   OnUnsubscribeHook,
   OutboundAliasResult,
   OutboundFlow,
+  PublishOutcome,
   QoS1InboundFlow,
   QoS1OutboundFlow,
   QoS2InboundFlow,

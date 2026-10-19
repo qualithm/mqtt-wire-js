@@ -286,6 +286,94 @@ describe("MqttWire (Server-Side)", () => {
       expect(sentPackets.length).toBe(initialPackets)
     })
 
+    it("sends the hook's failure reason code and reason string on the QoS 1 PUBACK", async () => {
+      const { wire, sentPackets } = createWire(
+        { onPublish: () => ({ reasonCode: 0x83, reasonString: "broker busy" }) },
+        { pubackAfterDelivery: true }
+      )
+      await connectClient(wire)
+      const before = sentPackets.length
+
+      await receivePacket(wire, {
+        type: PacketType.PUBLISH,
+        topic: "test/topic",
+        packetId: 7,
+        qos: 1,
+        retain: false,
+        dup: false,
+        payload: new Uint8Array([1])
+      })
+
+      expect(sentPackets.length).toBe(before + 1)
+      const sent = decodePacket(sentPackets[before])
+      expect(sent.ok && sent.value.packet).toMatchObject({
+        type: PacketType.PUBACK,
+        packetId: 7,
+        reasonCode: 0x83,
+        properties: { reasonString: "broker busy" }
+      })
+    })
+
+    it("sends a returned reason code without a reason string", async () => {
+      const { wire, sentPackets } = createWire(
+        { onPublish: async () => Promise.resolve({ reasonCode: 0x80 as const }) },
+        { pubackAfterDelivery: true }
+      )
+      await connectClient(wire)
+      const before = sentPackets.length
+
+      await receivePacket(wire, {
+        type: PacketType.PUBLISH,
+        topic: "test/topic",
+        packetId: 8,
+        qos: 1,
+        retain: false,
+        dup: false,
+        payload: new Uint8Array([1])
+      })
+
+      const sent = decodePacket(sentPackets[before])
+      expect(sent.ok && sent.value.packet).toMatchObject({
+        type: PacketType.PUBACK,
+        packetId: 8,
+        reasonCode: 0x80
+      })
+      expect(
+        sent.ok && "properties" in sent.value.packet && sent.value.packet.properties
+      ).toBeFalsy()
+    })
+
+    it.each([
+      [0x83, 0],
+      [0x00, 1]
+    ])(
+      "on MQTT 3.1.1, withholds the PUBACK for a failure outcome (reason %p sends %p)",
+      async (reasonCode, sent) => {
+        const { wire, sentPackets } = createWire(
+          { onPublish: () => ({ reasonCode: reasonCode as 0x83 | 0x00 }) },
+          { pubackAfterDelivery: true }
+        )
+        await connectClient(wire, { protocolVersion: "3.1.1" })
+        const before = sentPackets.length
+
+        await receivePacket(
+          wire,
+          {
+            type: PacketType.PUBLISH,
+            topic: "test/topic",
+            packetId: 9,
+            qos: 1,
+            retain: false,
+            dup: false,
+            payload: new Uint8Array([1])
+          },
+          "3.1.1"
+        )
+
+        expect(sentPackets.length).toBe(before + sent)
+      }
+    )
+
     it.each([false, true])(
       "sends PUBACK for QoS 1 with no publish hook (pubackAfterDelivery %p)",
       async (pubackAfterDelivery) => {
