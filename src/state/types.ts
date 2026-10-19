@@ -164,14 +164,31 @@ export type InboundFlow = QoS1InboundFlow | QoS2InboundFlow
 export type OnConnectHook = (packet: ConnectPacket) => ConnackPacket | Promise<ConnackPacket>
 
 /**
+ * How a publish hook answers a QoS 1 PUBLISH under `pubackAfterDelivery`.
+ */
+export type PublishOutcome = {
+  /** PUBACK reason code; 0x80 or above tells the client the message was not accepted */
+  readonly reasonCode: ReasonCode
+  /** Human-readable reason, sent as the PUBACK's reason string (5.0) */
+  readonly reasonString?: string
+}
+
+/**
  * Hook called when client sends PUBLISH.
  *
  * QoS acknowledgements (PUBACK, PUBREC) are handled automatically. With
- * `pubackAfterDelivery`, a QoS 1 PUBACK waits for this hook, and a hook that
- * throws withholds it.
+ * `pubackAfterDelivery`, a QoS 1 PUBACK waits for this hook: a hook that
+ * throws withholds it, and a returned `PublishOutcome` sets its reason code.
+ * MQTT 3.1.1 has no PUBACK reason code, so there a failure outcome withholds
+ * the PUBACK like a throw. Outside `pubackAfterDelivery`, and for QoS 0 and 2,
+ * a returned outcome is ignored.
  * The packet's topic is already resolved from topic alias if applicable.
  */
-export type OnPublishHook = (packet: PublishPacket) => void | Promise<void>
+export type OnPublishHook = (
+  packet: PublishPacket
+  // void keeps existing hooks typed `Promise<void>` assignable.
+  // eslint-disable-next-line @typescript-eslint/no-invalid-void-type
+) => void | PublishOutcome | Promise<void | PublishOutcome>
 
 /**
  * Hook called when client sends SUBSCRIBE.
