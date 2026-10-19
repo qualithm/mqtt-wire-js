@@ -19,6 +19,7 @@ export type {
   OnSubscribeHook,
   OnUnsubscribeHook,
   OutboundFlow,
+  PublishOutcome,
   QoS1InboundFlow,
   QoS1OutboundFlow,
   QoS2InboundFlow,
