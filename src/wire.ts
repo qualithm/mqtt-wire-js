@@ -31,7 +31,8 @@ import {
   type ConnectionState,
   DEFAULT_WIRE_OPTIONS,
   type LifecycleHooks,
-  type MqttWireOptions
+  type MqttWireOptions,
+  type PublishOutcome
 } from "./state/types.js"
 import { validateTopicName } from "./topic.js"
 import type { DecodeError, DecodeErrorCode, ProtocolVersion, QoS, ReasonCode } from "./types.js"
@@ -529,6 +530,29 @@ export class MqttWire {
     this.startKeepalive()
   }
 
+  /**
+   * The PUBACK answering a delivered QoS 1 publish, or undefined to withhold it.
+   * MQTT 3.1.1 can't carry a reason code, so a failure outcome withholds it.
+   */
+  private pubackFor(
+    puback: PubackPacket,
+    outcome: PublishOutcome | undefined
+  ): PubackPacket | undefined {
+    if (outcome === undefined) {
+      return puback
+    }
+    if (this.protocolVersion !== "5.0") {
+      return outcome.reasonCode < 0x80 ? puback : undefined
+    }
+    return {
+      ...puback,
+      reasonCode: outcome.reasonCode,
+      ...(outcome.reasonString !== undefined && {
+        properties: { reasonString: outcome.reasonString }
+      })
+    }
+  }
+
   private async handlePublish(packet: PublishPacket): Promise<void> {
     if (this.state !== "connected") {
       return // Ignore if not connected
@@ -562,10 +586,13 @@ export class MqttWire {
       if (this.options.pubackAfterDelivery) {
         // Deliver, then acknowledge: a hook that throws skips the PUBACK, so
         // the client still holds the message and resends it.
-        if (this.hooks.onPublish) {
-          await this.hooks.onPublish(resolvedPacket)
+        const outcome = this.hooks.onPublish
+          ? ((await this.hooks.onPublish(resolvedPacket)) ?? undefined)
+          : undefined
+        const answer = this.pubackFor(puback, outcome)
+        if (answer !== undefined) {
+          await this.sendPacket(answer)
         }
-        await this.sendPacket(puback)
       } else {
         // QoS 1: Send PUBACK, then deliver
         await this.sendPacket(puback)
