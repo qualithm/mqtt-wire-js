@@ -25,6 +25,7 @@ import type {
   UnsubackPacket,
   UnsubscribePacket
 } from "../../../packets/types.js"
+import type { ReasonCode } from "../../../types.js"
 
 describe("encodePacket", () => {
   describe("CONNECT [§3.1]", () => {
@@ -155,6 +156,29 @@ describe("encodePacket", () => {
 
       expect(bytes[2]).toBe(0x00)
       expect(bytes[3]).toBe(0x84)
+    })
+
+    it("encodes a 3.1.1 CONNACK with its return code, not a 5.0 reason code", () => {
+      const cases: [ReasonCode, number][] = [
+        [0x00, 0x00],
+        [0x84, 0x01],
+        [0x85, 0x02],
+        [0x86, 0x04],
+        [0x87, 0x05],
+        [0x8a, 0x05],
+        [0x8c, 0x05],
+        [0x80, 0x03],
+        [0x97, 0x03],
+        [0x04, 0x04]
+      ]
+      for (const [reasonCode, returnCode] of cases) {
+        const bytes = encodePacket(
+          { type: PacketType.CONNACK, sessionPresent: false, reasonCode },
+          "3.1.1"
+        )
+        expect(bytes[1]).toBe(2)
+        expect(bytes[3]).toBe(returnCode)
+      }
     })
   })
 
@@ -362,6 +386,17 @@ describe("encodePacket", () => {
       const bytes = encodePacket(packet, "5.0")
 
       expect(bytes[0]).toBe(0x90)
+    })
+
+    it("encodes every 3.1.1 SUBACK failure as 0x80", () => {
+      const packet: SubackPacket = {
+        type: PacketType.SUBACK,
+        packetId: 1,
+        reasonCodes: [0x01, 0x87, 0x80]
+      }
+
+      expect([...encodePacket(packet, "3.1.1").slice(4)]).toEqual([0x01, 0x80, 0x80])
+      expect([...encodePacket(packet, "5.0").slice(5)]).toEqual([0x01, 0x87, 0x80])
     })
   })
 

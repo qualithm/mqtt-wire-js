@@ -155,6 +155,34 @@ function encodeConnect(packet: ConnectPacket, version: ProtocolVersion): Uint8Ar
 // -----------------------------------------------------------------------------
 
 /**
+ * The MQTT 3.1.1 CONNACK return code for a reason code (§3.2.2.3), which allows only 0–5.
+ * A code already in that range passes through; any failure without a 3.1.1 equivalent is
+ * "server unavailable".
+ *
+ * @param reasonCode - an MQTT 5.0 reason code, or a 3.1.1 return code
+ * @returns the 3.1.1 return code
+ */
+function connackReturnCode311(reasonCode: number): number {
+  if (reasonCode <= 0x05) {
+    return reasonCode
+  }
+  switch (reasonCode) {
+    case 0x84: // Unsupported protocol version
+      return 0x01
+    case 0x85: // Client identifier not valid
+      return 0x02
+    case 0x86: // Bad user name or password
+      return 0x04
+    case 0x87: // Not authorized
+    case 0x8a: // Banned
+    case 0x8c: // Bad authentication method
+      return 0x05
+    default:
+      return 0x03
+  }
+}
+
+/**
  * Encode a CONNACK packet to binary format.
  *
  * Encodes session present flag, reason code, and properties (5.0).
@@ -168,7 +196,9 @@ function encodeConnack(packet: ConnackPacket, version: ProtocolVersion): Uint8Ar
   // Connect acknowledge flags
   tempWriter.writeUint8(packet.sessionPresent ? 0x01 : 0x00)
   // Reason code
-  tempWriter.writeUint8(packet.reasonCode)
+  tempWriter.writeUint8(
+    version === "5.0" ? packet.reasonCode : connackReturnCode311(packet.reasonCode)
+  )
 
   // Properties (5.0 only)
   if (version === "5.0") {
@@ -407,9 +437,9 @@ function encodeSuback(packet: SubackPacket, version: ProtocolVersion): Uint8Arra
     }
   }
 
-  // Payload - reason codes
+  // Payload - reason codes; 3.1.1 has a single failure code, 0x80 (§3.9.3)
   for (const code of packet.reasonCodes) {
-    tempWriter.writeUint8(code)
+    tempWriter.writeUint8(version !== "5.0" && code >= 0x80 ? 0x80 : code)
   }
 
   const remainingLength = tempWriter.length
